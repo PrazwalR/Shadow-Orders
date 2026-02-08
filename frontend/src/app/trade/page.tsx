@@ -429,7 +429,7 @@ export default function TradePage() {
                                                 Create Shadow Order
                                             </CardTitle>
                                             <CardDescription>
-                                                Your order details are encrypted with Inco FHE &amp; sent on-chain
+                                                Your order details are encrypted with Inco Lightning (TEE) &amp; sent on-chain
                                             </CardDescription>
                                         </div>
                                         <Button
@@ -625,7 +625,7 @@ export default function TradePage() {
                                                 </Tooltip>
                                                 <Badge variant="outline" className="ml-auto gap-1 text-xs">
                                                     <Lock className="h-3 w-3" />
-                                                    FHE Encrypted
+                                                    TEE Encrypted
                                                 </Badge>
                                             </div>
                                             <div className="relative rounded-xl border bg-muted/30 p-4">
@@ -726,7 +726,7 @@ export default function TradePage() {
                                                     <span className="font-medium">~$0.01</span>
                                                 </div>
                                                 <div className="flex justify-between">
-                                                    <span className="text-muted-foreground">FHE Fee (Inco)</span>
+                                                    <span className="text-muted-foreground">TEE Fee (Inco)</span>
                                                     <span className="font-medium">0.0003 ETH</span>
                                                 </div>
                                             </div>
@@ -848,8 +848,8 @@ export default function TradePage() {
                                             {[
                                                 {
                                                     s: "1",
-                                                    t: "FHE Encryption",
-                                                    d: "Your limit price and amount are encrypted in-browser using Inco\u2019s TFHE SDK",
+                                                    t: "TEE Encryption",
+                                                    d: "Your limit price and amount are encrypted in-browser using Inco’s Lightning SDK",
                                                 },
                                                 {
                                                     s: "2",

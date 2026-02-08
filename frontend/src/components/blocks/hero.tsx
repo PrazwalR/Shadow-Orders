@@ -1,5 +1,3 @@
-import Image from "next/image";
-
 import {
   ArrowRight,
   Lock,
@@ -13,8 +11,8 @@ import { Button } from "@/components/ui/button";
 
 const features = [
   {
-    title: "FHE Encrypted Orders",
-    description: "Your limit prices and amounts are fully encrypted using Inco Network's FHE technology.",
+    title: "TEE Encrypted Orders",
+    description: "Your limit prices and amounts are encrypted using Inco Lightning SDK with Trusted Execution Environments.",
     icon: Lock,
   },
   {
@@ -40,12 +38,12 @@ export const Hero = () => {
       <div className="container flex flex-col justify-between gap-8 md:gap-14 lg:flex-row lg:gap-20">
         {/* Left side - Main content */}
         <div className="flex-1">
-          <h1 className="text-foreground max-w-160 text-3xl tracking-tight md:text-4xl lg:text-5xl xl:whitespace-nowrap">
-            Shadow Orders
-          </h1>
+          <div className="max-w-160 overflow-hidden">
+            <img src="/logo.png" alt="Shadow Orders" className="h-32 w-auto md:h-40 lg:h-48 object-cover object-center" />
+          </div>
 
           <p className="text-muted-foreground text-1xl mt-5 md:text-3xl">
-            Private limit orders on Uniswap V4 using Fully Homomorphic Encryption.
+            Private limit orders on Uniswap V4 using Inco Lightning (TEE).
             Trade without revealing your strategy.
           </p>
 
@@ -101,13 +99,32 @@ export const Hero = () => {
       </div>
 
       <div className="mt-12 max-lg:ml-6 max-lg:h-[550px] max-lg:overflow-hidden md:mt-20 lg:container lg:mt-24">
-        <div className="relative h-[793px] w-full">
-          <Image
-            src="/hero.webp"
-            alt="hero"
-            fill
-            className="rounded-2xl object-cover object-left-top shadow-lg max-lg:rounded-tr-none"
-          />
+        <div className="relative h-[793px] w-full rounded-2xl overflow-hidden border border-border max-lg:rounded-tr-none bg-muted/30">
+          {/* Simple gradient background */}
+          <div className="absolute inset-0 bg-gradient-to-br from-background via-muted/50 to-background" />
+          
+          {/* Subtle grid pattern */}
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.02)_1px,transparent_1px)] bg-[size:3rem_3rem]" />
+          
+          {/* Content */}
+          <div className="relative h-full flex items-center justify-center">
+            <div className="text-center space-y-8 px-4">
+              <div className="space-y-4">
+                <h2 className="text-6xl md:text-8xl font-bold tracking-tight">
+                  Privacy Preserving DEX
+                </h2>
+                <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl mx-auto">
+                  Trade with encrypted limit orders on Uniswap V4
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2 text-sm md:text-base text-muted-foreground">
+                <span>Powered by</span>
+                <span className="font-semibold text-foreground">Uniswap V4</span>
+                <span>×</span>
+                <span className="font-semibold text-foreground">Inco Lightning</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>

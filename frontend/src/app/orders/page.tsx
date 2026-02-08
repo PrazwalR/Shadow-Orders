@@ -241,7 +241,7 @@ export default function OrdersPage() {
                                                 </div>
                                                 <div>
                                                     <span className="text-muted-foreground">Privacy</span>
-                                                    <p className="flex items-center gap-1"><Shield className="h-3 w-3 text-primary" />FHE Encrypted</p>
+                                                    <p className="flex items-center gap-1"><Shield className="h-3 w-3 text-primary" />TEE Encrypted</p>
                                                 </div>
                                             </div>
 
@@ -251,7 +251,7 @@ export default function OrdersPage() {
                                                     {order.txHash && (
                                                         <Button variant="outline" size="sm" asChild className="text-xs">
                                                             <a href={`https://sepolia.basescan.org/tx/${order.txHash}`} target="_blank" rel="noopener noreferrer">
-                                                                <ExternalLink className="h-3 w-3 mr-1" />Order TX (FHE)
+                                                                <ExternalLink className="h-3 w-3 mr-1" />Order TX (TEE)
                                                             </a>
                                                         </Button>
                                                     )}

@@ -13,11 +13,11 @@ export function Footer() {
   ];
 
   const social = [
-    { name: "GitHub", href: "https://github.com" },
-    { name: "Twitter", href: "https://x.com" },
+    { name: "GitHub", href: "https://github.com/PrazwalR/Shadow-Orders" },
+    { name: "Twitter", href: "https://x.com/RattiPrazwal" },
   ];
 
-  const legal = [{ name: "Built for Hookathon 2024", href: "#" }];
+  const legal = [{ name: "Built for HackMoney 2024", href: "#" }];
 
   return (
     <footer className="flex flex-col items-center gap-14 pt-28 lg:pt-32">
@@ -27,7 +27,7 @@ export function Footer() {
         </h2>
         <p className="text-muted-foreground mx-auto max-w-xl leading-snug text-balance">
           Shadow Orders brings privacy-preserving limit orders to DeFi using
-          Uniswap V4 Hooks and Inco FHE encryption.
+          Uniswap V4 Hooks and Inco Lightning encryption.
         </p>
         <div>
           <Button size="lg" className="mt-4" asChild>

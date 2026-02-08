@@ -62,12 +62,7 @@ export const Navbar = () => {
       <div className="flex items-center justify-between px-4 py-3 lg:px-6">
         {/* Logo */}
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <div className="flex items-center gap-2">
-            <div className="bg-primary/10 flex h-9 w-9 items-center justify-center rounded-xl">
-              <Shield className="text-primary h-5 w-5" />
-            </div>
-            <span className="text-lg font-bold tracking-tight">Shadow Orders</span>
-          </div>
+          <span className="text-lg font-bold tracking-tight">Shadow Orders</span>
         </Link>
 
         {/* Desktop Navigation */}

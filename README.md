@@ -1,8 +1,8 @@
 # Shadow Orders 🥷
 
-**Privacy-Preserving Limit Orders on Uniswap V4 Using Fully Homomorphic Encryption (FHE)**
+**Privacy-Preserving Limit Orders on Uniswap V4 Using Inco Lightning (TEE)**
 
-Shadow Orders enables users to place encrypted limit orders on Uniswap V4 without revealing their trading intentions. By leveraging **Inco Network's FHE Lightning SDK** and **Uniswap V4's hook architecture**, Shadow Orders protects traders from front-running and MEV attacks while maintaining full decentralization.
+Shadow Orders enables users to place encrypted limit orders on Uniswap V4 without revealing their trading intentions. By leveraging **Inco Network's Lightning SDK** and **Uniswap V4's hook architecture**, Shadow Orders protects traders from front-running and MEV attacks while maintaining full decentralization.
 
 ---
 
@@ -26,20 +26,20 @@ Imagine Alice wants to buy 1000 USDC worth of ETH when the price drops to $2,900
 5. Alice's order executes at a worse price (or doesn't execute at all)
 6. Bob sells his ETH for a profit, having extracted value from Alice
 
-**Shadow Orders solves this**: Alice's limit price, order size, and buy/sell direction are all encrypted using FHE. Bob can see there's an order, but has no idea what the parameters are, eliminating front-running opportunities.
+**Shadow Orders solves this**: Alice's limit price, order size, and buy/sell direction are all encrypted using TEE. Bob can see there's an order, but has no idea what the parameters are, eliminating front-running opportunities.
 
 ---
 
 ## 💡 Solution
 
-Shadow Orders uses **Fully Homomorphic Encryption (FHE)** to encrypt order parameters client-side before submitting them on-chain. The smart contract can verify these encrypted values against market conditions without ever decrypting them, preserving privacy throughout the entire lifecycle.
+Shadow Orders uses **Inco Lightning with Trusted Execution Environment (TEE)** to encrypt order parameters client-side before submitting them on-chain. The smart contract can verify these encrypted values against market conditions while preserving privacy throughout the entire lifecycle.
 
 ### Key Innovations
 
-1. **Client-Side FHE Encryption**: Order parameters are encrypted in the browser using Inco's Lightning SDK
+1. **Client-Side TEE Encryption**: Order parameters are encrypted in the browser using Inco's Lightning SDK
 2. **Uniswap V4 Hooks**: Custom hook intercepts swap operations to check encrypted limit orders
 3. **Keeper Network**: Decentralized keepers monitor for triggered orders and execute swaps
-4. **Zero Knowledge**: Even the smart contract never sees plaintext order parameters
+4. **Privacy First**: Order parameters remain encrypted using Inco Lightning's TEE technology
 
 ---
 
@@ -49,7 +49,7 @@ Shadow Orders uses **Fully Homomorphic Encryption (FHE)** to encrypt order param
 ┌─────────────────────────────────────────────────────────────────┐
 │                          User Frontend                           │
 │  ┌────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
-│  │ Connect    │  │ Create Order │  │ Inco FHE Lightning  │   │
+│  │ Connect    │  │ Create Order │  │ Inco Lightning      │   │
 │  │ Wallet     │─▶│ Interface    │─▶│ SDK (Encryption)    │   │
 │  └────────────┘  └──────────────┘  └──────────────────────┘   │
 └────────────────────────────────┬────────────────────────────────┘
@@ -59,7 +59,7 @@ Shadow Orders uses **Fully Homomorphic Encryption (FHE)** to encrypt order param
 │                    Base Sepolia (Testnet)                        │
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │              ShadowOrdersHook.sol                           │ │
-│  │  • Stores FHE-encrypted limit orders                       │ │
+│  │  • Stores TEE-encrypted limit orders                       │ │
 │  │  • Verifies encrypted conditions on swap                   │ │
 │  │  • Triggers order execution when limit reached             │ │
 │  └────────────────────────────────────────────────────────────┘ │
@@ -97,9 +97,9 @@ Shadow Orders uses **Fully Homomorphic Encryption (FHE)** to encrypt order param
 - **Solidity 0.8.26** for contract language
 
 ### Encryption & Privacy
-- **Inco Network FHE Lightning SDK** (`@inco/js`) for client-side encryption
-- **TFHE (Torus FHE)** for homomorphic operations
-- **Base Sepolia integration** for FHE computations on Layer 2
+- **Inco Network Lightning SDK** (`@inco/js`) for client-side encryption
+- **TEE (Trusted Execution Environment)** for secure computations
+- **Base Sepolia integration** for encrypted computations on Layer 2
 
 ### Web3 Integration
 - **Wagmi v3.4.2** for React hooks
@@ -140,7 +140,7 @@ const tx = await shadowOrdersHook.createOrder(
   encryptedDirection,
   tokenIn,
   tokenOut,
-  { value: parseEther("0.0003") } // Small fee for FHE computation
+  { value: parseEther("0.0003") } // Small fee for TEE computation
 );
 
 // 3. Order is stored on-chain, fully encrypted
@@ -330,11 +330,11 @@ Visit the deployed app and use the "Get Test Tokens" button in the Trade page. T
 
 ## 🔐 Security Features
 
-### FHE Encryption
+### TEE Encryption
 - **Client-Side Encryption**: All sensitive parameters encrypted in browser before transmission
-- **No Trusted Setup**: Uses lattice-based cryptography (no ceremony needed)
-- **Homomorphic Operations**: Smart contracts can compute on encrypted data without decryption
-- **Quantum-Resistant**: Based on hard lattice problems (RLWE)
+- **Trusted Execution Environment**: Uses hardware-secured execution environment
+- **Privacy Preserving**: Order parameters remain encrypted throughout execution
+- **Fast & Secure**: Combines speed of TEE with strong privacy guarantees
 
 ### Smart Contract Security
 - **Reentrancy Guards**: All external calls protected
@@ -366,7 +366,7 @@ Visit the deployed app and use the "Get Test Tokens" button in the Trade page. T
 - [ ] Encrypted order book (fully private)
 
 ### Phase 3: Advanced Features (Planned)
-- [ ] Stop-loss orders with FHE
+- [ ] Stop-loss orders with TEE
 - [ ] Take-profit orders
 - [ ] Trailing stop orders
 - [ ] Time-weighted average price (TWAP) orders
@@ -386,7 +386,7 @@ Visit the deployed app and use the "Get Test Tokens" button in the Trade page. T
 ### Gas Costs
 - **Create Order**: ~500k gas (~$0.50 on Base Sepolia)
 - **Order Execution**: ~300k gas (paid by keeper)
-- **FHE Fee**: 0.0003 ETH (~$0.90) for encryption computation
+- **TEE Fee**: 0.0003 ETH (~$0.90) for encryption computation
 
 ### Latency
 - **Order Creation**: 2-5 seconds (includes encryption + blockchain confirmation)
@@ -429,7 +429,7 @@ git push origin feature/your-feature-name
 
 ### Documentation
 - [Uniswap V4 Hooks](https://docs.uniswap.org/contracts/v4/overview)
-- [Inco Network FHE](https://docs.inco.org/)
+- [Inco Network](https://docs.inco.org/)
 - [Base Network](https://docs.base.org/)
 - [Wagmi Docs](https://wagmi.sh/)
 
@@ -449,7 +449,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - **Uniswap Labs** for pioneering the hooks architecture in V4
-- **Inco Network** for making FHE accessible on EVM chains
+- **Inco Network** for making TEE accessible on EVM chains
 - **Base Team** for providing a fast and cheap Layer 2
 - **The Ethereum Community** for endless inspiration
 
@@ -457,9 +457,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 💬 Contact & Support
 
-- **Twitter**: [@shadow_orders](https://twitter.com/shadow_orders)
-- **Discord**: [Join our server](https://discord.gg/shadow-orders)
-- **Email**: support@shadoworders.xyz
+- **Twitter**: [@shadow_orders](https://x.com/RattiPrazwal)
+- **Email**: prazwalr07@gmail.com
 
 ---
 
