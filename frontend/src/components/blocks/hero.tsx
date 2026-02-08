@@ -102,10 +102,10 @@ export const Hero = () => {
         <div className="relative h-[793px] w-full rounded-2xl overflow-hidden border border-border max-lg:rounded-tr-none bg-muted/30">
           {/* Simple gradient background */}
           <div className="absolute inset-0 bg-gradient-to-br from-background via-muted/50 to-background" />
-          
+
           {/* Subtle grid pattern */}
           <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.02)_1px,transparent_1px)] bg-[size:3rem_3rem]" />
-          
+
           {/* Content */}
           <div className="relative h-full flex items-center justify-center">
             <div className="text-center space-y-8 px-4">

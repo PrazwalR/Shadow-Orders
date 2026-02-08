@@ -160,7 +160,8 @@
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1280px;
-  --breakpoint-2xl: 1400px; /* default is 1536px */
+  --breakpoint-2xl: 1400px;
+  /* default is 1536px */
 
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
@@ -178,14 +179,17 @@
     from {
       height: 0;
     }
+
     to {
       height: var(--radix-accordion-content-height);
     }
   }
+
   @keyframes accordion-up {
     from {
       height: var(--radix-accordion-content-height);
     }
+
     to {
       height: 0;
     }
@@ -195,7 +199,8 @@
 @utility container {
   margin-inline: auto;
   padding-inline: 1.5rem;
-  @media (width >= 1400px) {
+
+  @media (width >=1400px) {
     max-width: 1220px;
   }
 }
@@ -204,9 +209,11 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
   }
+
   *,
   ::after,
   ::before,
@@ -217,11 +224,13 @@
 }
 
 @layer utilities {
+
   body,
   .font-text {
     font-family: var(--font-text);
     font-weight: var(--text-weight);
   }
+
   h1,
   h2,
   .font-display {
@@ -242,8 +251,10 @@
     font-feature-settings:
       "ss02" on,
       "ss03" on,
-      "ss04" on; /* Enables the special `a` character and other characters for DM Sans */
+      "ss04" on;
+    /* Enables the special `a` character and other characters for DM Sans */
   }
+
   .font-mono {
     font-family: var(--font-mono), monospace;
   }
@@ -253,6 +264,7 @@
   button {
     cursor: pointer;
   }
+
   [class*="border"] {
     @apply border-border;
   }
@@ -262,6 +274,7 @@ html,
 body {
   scroll-behavior: smooth;
 }
+
 body {
   position: relative;
 }
