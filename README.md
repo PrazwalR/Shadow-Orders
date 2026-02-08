@@ -2,7 +2,11 @@
 
 **Privacy-Preserving Limit Orders on Uniswap V4 Using Inco Lightning (TEE)**
 
+> **Built with**: Uniswap V4 Hooks + Inco Lightning TEE + Base Sepolia
+
 Shadow Orders enables users to place encrypted limit orders on Uniswap V4 without revealing their trading intentions. By leveraging **Inco Network's Lightning SDK** and **Uniswap V4's hook architecture**, Shadow Orders protects traders from front-running and MEV attacks while maintaining full decentralization.
+
+**⚠️ Status**: Testnet deployment on Base Sepolia for hackathon demonstration
 
 ---
 
