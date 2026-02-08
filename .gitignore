@@ -1,12 +1,29 @@
 # Dependencies
 node_modules/
 **/node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.lcov
+.nyc_output
+
+# Production
+/build
+/dist
+**/build
+**/dist
+.next/
+**/.next/
+out/
+**/out/
 
 # Compiler files
 cache/
-out/
 **/cache/
-**/out/
+forge-cache/
+**/forge-cache/
 
 # Ignores development broadcast logs
 !/broadcast
@@ -15,19 +32,15 @@ out/
 broadcast/
 **/broadcast/
 
-# Build outputs
-dist/
-build/
-.next/
-**/dist/
-**/build/
-**/.next/
-
 # Package manager files
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
 .pnpm-debug.log
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
 
 # Environment files
 .env
@@ -35,14 +48,29 @@ pnpm-lock.yaml
 .env.development.local
 .env.test.local
 .env.production.local
+.env*.local
 secrets.env
+*.key
+*.pem
 
-# IDE files
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE and Editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
 
 # OS files
 .DS_Store
@@ -52,14 +80,14 @@ secrets.env
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
 
 # Logs
 logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 lerna-debug.log*
+.npm
 
 # Runtime data
 pids/
@@ -67,20 +95,44 @@ pids/
 *.seed
 *.pid.lock
 
-# Coverage directory used by tools like istanbul
-coverage/
-*.lcov
+# Optional npm cache directory
+.npm
 
-# Docs (if generated)
-docs/
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Foundry/Solidity specific
 lib/
 **/lib/
-forge-cache/
-**/forge-cache/
+
+# Documentation (generated)
+docs/
+**/docs/
 
 # Test artifacts
 .coverage_artifacts/
 .coverage_cache/
 .coverage_contracts/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Temporary files
+*.tmp
+*.temp
+.turbo
+
+# Vercel
+.vercel
+
+# Misc
+*.bak
+*.old
+*.backup

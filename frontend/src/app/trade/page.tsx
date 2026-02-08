@@ -1,8 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { parseUnits, formatUnits } from "viem";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import {
+    useAccount,
+    useReadContract,
+    useWriteContract,
+    useWaitForTransactionReceipt,
+} from "wagmi";
+import { parseUnits, formatUnits, parseEther } from "viem";
 import {
     ArrowDownUp,
     Settings,
@@ -15,11 +20,9 @@ import {
     ExternalLink,
     Eye,
     Route,
-    Zap,
     ChevronDown,
     TrendingUp,
     RefreshCw,
-    Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,289 +46,216 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Navbar } from "@/components/blocks/navbar";
 import { ShadowFooter } from "@/components/blocks/shadow-footer";
-import { MOCK_TOKENS, CONTRACTS, findRoute, TOKENS, API_CONFIG, type TokenInfo } from "@/config/contracts";
-import { SHADOW_ORDERS_HOOK_ABI, ERC20_ABI } from "@/config/abis";
-import { useDemoMode } from "@/contexts/demo-mode-context";
-
-type OrderType = "market" | "limit";
+import {
+    MOCK_TOKENS,
+    CONTRACTS,
+    findRoute,
+    TOKENS,
+    getPoolForPair,
+    type TokenInfo,
+} from "@/config/contracts";
+import { ERC20_ABI, SHADOW_ORDERS_HOOK_ABI } from "@/config/abis";
+import { useOrderTracking } from "@/contexts/order-tracking-context";
+import { encryptOrderParams } from "@/lib/fhe";
 
 // Price cache to avoid excessive API calls
 const priceCache: { [key: string]: { price: number; timestamp: number } } = {};
 const CACHE_DURATION = 30000; // 30 seconds
 
-// Simple FHE encryption simulation for demo
-// In production, this would use Inco's fhevmjs SDK
-function encryptForFHE(value: bigint): `0x${string}` {
-    // Convert to 32-byte hex representation
-    // Real implementation would use: await fhevm.encrypt256(value)
-    return `0x${value.toString(16).padStart(64, "0")}` as `0x${string}`;
-}
+// FHE fee per operation (3 operations: price + amount + isBuy)
+const FHE_FEE = parseEther("0.0003");
 
 export default function TradePage() {
     const { address, isConnected } = useAccount();
-    const { isDemoMode, setIsDemoMode, addOrder } = useDemoMode();
+    const { addOrder } = useOrderTracking();
 
-    // Token selection state
+    // Token selection
     const [fromToken, setFromToken] = useState<TokenInfo>(TOKENS.mUSDC);
     const [toToken, setToToken] = useState<TokenInfo>(TOKENS.mWETH);
     const [showFromTokens, setShowFromTokens] = useState(false);
     const [showToTokens, setShowToTokens] = useState(false);
 
     // Order state
-    const [orderType, setOrderType] = useState<OrderType>("limit");
     const [amount, setAmount] = useState<string>("");
     const [limitPrice, setLimitPrice] = useState<string>("");
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [slippage, setSlippage] = useState<number>(0.5);
 
-    // Market price state
+    // Market prices (real data from CoinGecko)
     const [marketPrices, setMarketPrices] = useState<{ [key: string]: number }>({});
     const [isPriceLoading, setIsPriceLoading] = useState(false);
-    const [priceError, setPriceError] = useState<string | null>(null);
 
-    // Calculate route
-    const route = useMemo(() => {
-        return findRoute(fromToken.symbol, toToken.symbol);
-    }, [fromToken.symbol, toToken.symbol]);
+    // Order creation flow
+    const [isEncrypting, setIsEncrypting] = useState(false);
+    const [orderCreated, setOrderCreated] = useState(false);
+    const [orderError, setOrderError] = useState<string | null>(null);
 
-    // Fetch market prices from CoinGecko
+    // Route
+    const route = useMemo(
+        () => findRoute(fromToken.symbol, toToken.symbol),
+        [fromToken.symbol, toToken.symbol]
+    );
+
+    // ─── createOrder transaction via wagmi ───
+    const {
+        writeContract: writeCreateOrder,
+        data: createOrderHash,
+        isPending: isCreateOrderPending,
+        error: createOrderError,
+        reset: resetCreateOrder,
+    } = useWriteContract();
+
+    const {
+        isLoading: isConfirmingOrder,
+        isSuccess: isOrderConfirmed,
+        data: orderReceipt,
+    } = useWaitForTransactionReceipt({ hash: createOrderHash });
+
+    // ─── When TX is confirmed on-chain, add order to tracker ───
+    useEffect(() => {
+        if (isOrderConfirmed && createOrderHash && orderReceipt) {
+            // Capture the market price at the moment the TX confirms
+            const startPrice = currentMarketPrice || Number(limitPrice) * 1.05;
+
+            // Parse orderId from OrderCreated event logs
+            let onChainOrderId: string | undefined;
+            for (const log of orderReceipt.logs) {
+                // OrderCreated event topic: keccak256("OrderCreated(uint256,address,bytes32,uint256)")
+                // The orderId is the first indexed param (topics[1])
+                if (log.address.toLowerCase() === CONTRACTS.SHADOW_ORDERS_HOOK.toLowerCase() && log.topics[1]) {
+                    onChainOrderId = BigInt(log.topics[1]).toString();
+                    break;
+                }
+            }
+
+            addOrder({
+                orderId: onChainOrderId || `order-${createOrderHash.slice(0, 16)}`,
+                txHash: createOrderHash,
+                fromToken: fromToken.symbol,
+                toToken: toToken.symbol,
+                amount,
+                limitPrice: Number(limitPrice),
+                startPrice,
+            });
+
+            setOrderCreated(true);
+            setOrderError(null);
+            resetCreateOrder();
+            setTimeout(() => setOrderCreated(false), 8000);
+
+            console.log(`✅ Shadow Order confirmed on-chain!`);
+            console.log(`   TX: https://sepolia.basescan.org/tx/${createOrderHash}`);
+            console.log(`   On-chain Order ID: ${onChainOrderId ?? "N/A"}`);
+            console.log(`   Start price: ${startPrice} | Limit price: ${limitPrice}`);
+            console.log(`   Simulation started → keeper will execute swap when limit is reached`);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOrderConfirmed, createOrderHash]);
+
+    // Handle createOrder TX error
+    useEffect(() => {
+        if (createOrderError) {
+            const msg = (createOrderError as Error & { shortMessage?: string })?.shortMessage
+                || createOrderError.message || "Transaction failed";
+            setOrderError(msg);
+            setIsEncrypting(false);
+            console.error("❌ createOrder TX failed:", msg);
+        }
+    }, [createOrderError]);
+
+    // ─── Fetch real market prices ───
     const fetchMarketPrices = useCallback(async () => {
         setIsPriceLoading(true);
-        setPriceError(null);
-
         try {
-            // Get unique coingecko IDs
-            const ids = MOCK_TOKENS.map(t => t.coingeckoId).join(',');
-
-            // Check cache first
+            const ids = MOCK_TOKENS.map((t) => t.coingeckoId).join(",");
             const now = Date.now();
-            const cachedPrices: { [key: string]: number } = {};
+            const cached: { [k: string]: number } = {};
             let allCached = true;
 
             for (const token of MOCK_TOKENS) {
-                const cached = priceCache[token.coingeckoId];
-                if (cached && now - cached.timestamp < CACHE_DURATION) {
-                    cachedPrices[token.symbol] = cached.price;
+                const c = priceCache[token.coingeckoId];
+                if (c && now - c.timestamp < CACHE_DURATION) {
+                    cached[token.symbol] = c.price;
                 } else {
                     allCached = false;
                 }
             }
-
             if (allCached) {
-                setMarketPrices(cachedPrices);
+                setMarketPrices(cached);
                 setIsPriceLoading(false);
                 return;
             }
 
-            // Fetch from CoinGecko public API (free, no key required)
-            const response = await fetch(
+            const res = await fetch(
                 `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`
             );
-
-            if (!response.ok) {
-                // If rate limited or error, use fallback prices
-                throw new Error('API unavailable');
-            }
-
-            const data = await response.json();
-            const prices: { [key: string]: number } = {};
-
+            if (!res.ok) throw new Error("API unavailable");
+            const data = await res.json();
+            const prices: { [k: string]: number } = {};
             for (const token of MOCK_TOKENS) {
-                const price = data[token.coingeckoId]?.usd || 0;
-                prices[token.symbol] = price;
-                priceCache[token.coingeckoId] = { price, timestamp: now };
+                const p = data[token.coingeckoId]?.usd || 0;
+                prices[token.symbol] = p;
+                priceCache[token.coingeckoId] = { price: p, timestamp: now };
             }
-
             setMarketPrices(prices);
         } catch {
-            // Use fallback prices silently
-            setMarketPrices({
-                mUSDC: 1,
-                mDAI: 1,
-                mWBTC: 97000,
-                mWETH: 3200,
-            });
+            // Fallback prices
+            setMarketPrices({ mUSDC: 1, mDAI: 1, mWBTC: 97000, mWETH: 3200 });
         } finally {
             setIsPriceLoading(false);
         }
     }, []);
 
-    // Fetch prices on mount and when tokens change
     useEffect(() => {
         fetchMarketPrices();
     }, [fetchMarketPrices]);
 
-    // Calculate current market price between selected tokens
+    // Current market price: toTokens per fromToken
     const currentMarketPrice = useMemo(() => {
-        const fromPrice = marketPrices[fromToken.symbol];
-        const toPrice = marketPrices[toToken.symbol];
-
-        if (!fromPrice || !toPrice || toPrice === 0) return null;
-
-        // Price = how many toTokens you get per 1 fromToken
-        // e.g., if fromToken is mWETH ($3200) and toToken is mUSDC ($1), 
-        // you get 3200 mUSDC per 1 mWETH
-        return fromPrice / toPrice;
+        const fp = marketPrices[fromToken.symbol];
+        const tp = marketPrices[toToken.symbol];
+        if (!fp || !tp || tp === 0) return null;
+        return fp / tp;
     }, [fromToken.symbol, toToken.symbol, marketPrices]);
 
-    // Auto-fill limit price with market price (with small buffer)
     const handleUseMarketPrice = () => {
-        if (currentMarketPrice) {
-            // For buying, set slightly above market (willing to pay more)
-            const priceWithBuffer = currentMarketPrice * 1.005; // 0.5% buffer
-            setLimitPrice(priceWithBuffer.toFixed(6));
-        }
+        if (currentMarketPrice) setLimitPrice((currentMarketPrice * 1.005).toFixed(6));
     };
 
-    // Token balances
-    const { data: fromBalance, refetch: refetchFromBalance } = useReadContract({
+    // ─── On-chain reads ───
+    const { data: fromBalance } = useReadContract({
         address: fromToken.address as `0x${string}`,
         abi: ERC20_ABI,
         functionName: "balanceOf",
         args: address ? [address] : undefined,
     });
-
-    const { data: toBalance, refetch: refetchToBalance } = useReadContract({
+    const { data: toBalance } = useReadContract({
         address: toToken.address as `0x${string}`,
         abi: ERC20_ABI,
         functionName: "balanceOf",
         args: address ? [address] : undefined,
     });
-
-    // Approval states
     const { data: fromAllowance } = useReadContract({
         address: fromToken.address as `0x${string}`,
         abi: ERC20_ABI,
         functionName: "allowance",
-        args: address
-            ? [address, CONTRACTS.SHADOW_ORDERS_HOOK as `0x${string}`]
-            : undefined,
+        args: address ? [address, CONTRACTS.KEEPER_ADDRESS as `0x${string}`] : undefined,
     });
 
-    // Write contracts
+    // Approve tokens for the keeper to pull later
     const {
         writeContract: approve,
         data: approveHash,
         isPending: isApproving,
     } = useWriteContract();
-    const {
-        writeContract: createOrder,
-        data: orderHash,
-        isPending: isCreating,
-        error: orderError,
-    } = useWriteContract();
-
     const { isLoading: isConfirmingApprove } = useWaitForTransactionReceipt({
         hash: approveHash,
     });
 
-    const { isLoading: isConfirmingOrder, isSuccess: orderSuccess } =
-        useWaitForTransactionReceipt({
-            hash: orderHash,
-        });
-
-    // Track which orders we've already added to prevent duplicates
-    const addedOrdersRef = useRef<Set<string>>(new Set());
-
-    // Store values at time of order creation for the effect
-    const orderDataRef = useRef<{
-        limitPrice: string;
-        amount: string;
-        fromToken: string;
-        toToken: string;
-        startPrice: number | null;
-    } | null>(null);
-
-    // Capture order data when creating order
-    const handleCreateOrder = () => {
-        if (!amount || !limitPrice || route.route.length === 0) {
-            console.log("❌ Cannot create order - missing required fields. Amount:", amount, "LimitPrice:", limitPrice, "Route length:", route.route.length);
-            return;
-        }
-
-        console.log("📝 Capturing order data for order creation");
-        // Store data for after tx confirms
-        orderDataRef.current = {
-            limitPrice,
-            amount,
-            fromToken: fromToken.symbol,
-            toToken: toToken.symbol,
-            startPrice: currentMarketPrice,
-        };
-        console.log("📝 Order data captured:", orderDataRef.current);
-
-        // Encrypt values using FHE (simulated for demo)
-        const amountInWei = parseUnits(amount, fromToken.decimals);
-        const priceInWei = parseUnits(limitPrice, 18); // Use 18 decimals for price
-
-        // In production, these would be actual FHE ciphertexts from Inco's SDK
-        const encryptedPrice = encryptForFHE(priceInWei);
-        const encryptedAmount = encryptForFHE(amountInWei);
-        const inputProof = "0x" as `0x${string}`; // Empty proof for demo
-
-        // Use the first pool in the route for now
-        // Multi-hop would require additional contract logic
-        console.log("🚀 Submitting order to contract. Pool:", route.route[0]);
-        createOrder({
-            address: CONTRACTS.SHADOW_ORDERS_HOOK as `0x${string}`,
-            abi: SHADOW_ORDERS_HOOK_ABI,
-            functionName: "createOrder",
-            args: [
-                route.route[0] as `0x${string}`,
-                encryptedPrice,
-                encryptedAmount,
-                inputProof,
-                true, // isBuyOrder
-            ],
-        });
-        console.log("📤 Order submitted to wallet");
-    };
-
-    // For Demo Mode: Add order immediately when tx is SUBMITTED (has hash)
-    // This allows price simulation to start right away without waiting for confirmation
-    useEffect(() => {
-        if (isDemoMode && orderHash && !addedOrdersRef.current.has(orderHash)) {
-            const orderData = orderDataRef.current;
-            console.log("🎭 Demo Mode: TX submitted with hash:", orderHash);
-            console.log("Order data from ref:", orderData);
-            
-            if (orderData && orderData.limitPrice && orderData.amount) {
-                console.log("✨ Adding order to demo tracking immediately:", orderData);
-                addedOrdersRef.current.add(orderHash);
-                
-                const startPrice = orderData.startPrice || (Number(orderData.limitPrice) * 1.05);
-                console.log("Creating order with startPrice:", startPrice);
-                addOrder({
-                    orderId: `order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                    txHash: orderHash,
-                    fromToken: orderData.fromToken,
-                    toToken: orderData.toToken,
-                    amount: orderData.amount,
-                    limitPrice: Number(orderData.limitPrice),
-                    startPrice: startPrice,
-                });
-                // Clear the ref after adding
-                orderDataRef.current = null;
-            }
-        }
-    }, [isDemoMode, orderHash, addOrder]);
-
-    // For Live Mode: Refetch balances after confirmed tx
-    useEffect(() => {
-        if (orderSuccess && orderHash) {
-            console.log("✅ Order confirmed on-chain:", orderHash);
-            refetchFromBalance();
-            refetchToBalance();
-        }
-    }, [orderSuccess, orderHash, refetchFromBalance, refetchToBalance]);
-
-    // Format balances
     const formattedFromBalance = fromBalance
         ? Number(formatUnits(fromBalance as bigint, fromToken.decimals)).toFixed(4)
         : "0";
@@ -333,105 +263,163 @@ export default function TradePage() {
         ? Number(formatUnits(toBalance as bigint, toToken.decimals)).toFixed(4)
         : "0";
 
-    // Check if approval is needed
-    const amountToSpend = amount
-        ? parseUnits(amount, fromToken.decimals)
-        : BigInt(0);
+    const amountToSpend = amount ? parseUnits(amount, fromToken.decimals) : BigInt(0);
     const needsApproval =
-        fromAllowance !== undefined &&
-        amountToSpend > (fromAllowance as bigint);
+        fromAllowance !== undefined && amountToSpend > (fromAllowance as bigint);
 
-    // Calculate estimated output
-    const estimatedOutput =
-        amount && limitPrice
-            ? (Number(amount) / Number(limitPrice)).toFixed(6)
-            : "0";
+    // Estimated output
+    const estimatedOutput = useMemo(() => {
+        if (!amount || !limitPrice || Number(limitPrice) === 0) return "0";
+        const raw = Number(amount) * Number(limitPrice);
+        if (raw < 0.0001) return raw.toFixed(8);
+        if (raw < 1) return raw.toFixed(6);
+        if (raw < 1000) return raw.toFixed(4);
+        return raw.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }, [amount, limitPrice]);
+
+    // ─── Create Shadow Order: Encrypt → Sign TX → Confirm → Track ───
+    const handleCreateOrder = async () => {
+        if (!amount || !limitPrice || !address || route.route.length === 0) return;
+
+        setOrderError(null);
+        setIsEncrypting(true);
+
+        try {
+            // Step 1: Encrypt order parameters using Inco FHE SDK
+            console.log("🔐 Encrypting order with Inco FHE...");
+            console.log(`   Amount: ${amount} ${fromToken.symbol}`);
+            console.log(`   Limit Price: ${limitPrice} ${toToken.symbol}/${fromToken.symbol}`);
+            console.log(`   User Address: ${address}`);
+
+            const limitPriceWei = parseUnits(limitPrice, 18); // price as uint256
+            const amountWei = parseUnits(amount, fromToken.decimals);
+            // Buy order = we're buying toToken (price going up means good for us)
+            const isBuyOrder = currentMarketPrice
+                ? Number(limitPrice) > currentMarketPrice
+                : true;
+
+            console.log(`   Encrypting: limitPrice=${limitPriceWei.toString()}, amount=${amountWei.toString()}, isBuy=${isBuyOrder}`);
+
+            const { encryptedPrice, encryptedAmount, encryptedIsBuy } =
+                await encryptOrderParams(
+                    limitPriceWei,
+                    amountWei,
+                    isBuyOrder,
+                    address as `0x${string}`
+                );
+
+            console.log("✅ FHE encryption complete");
+            console.log(`   Encrypted price: ${encryptedPrice.slice(0, 20)}...`);
+            console.log(`   Encrypted amount: ${encryptedAmount.slice(0, 20)}...`);
+            console.log(`   Encrypted isBuy: ${encryptedIsBuy.slice(0, 20)}...`);
+
+            // Step 2: Build the poolKey for the contract call
+            // The contract sorts tokens by address (currency0 < currency1)
+            const pool = getPoolForPair(fromToken.symbol, toToken.symbol);
+            let token0Addr: string;
+            let token1Addr: string;
+
+            if (pool) {
+                // Direct pool
+                const t0 = TOKENS[pool.token0 as keyof typeof TOKENS];
+                const t1 = TOKENS[pool.token1 as keyof typeof TOKENS];
+                // Ensure correct sort order (lower address = currency0)
+                if (t0.address.toLowerCase() < t1.address.toLowerCase()) {
+                    token0Addr = t0.address;
+                    token1Addr = t1.address;
+                } else {
+                    token0Addr = t1.address;
+                    token1Addr = t0.address;
+                }
+            } else {
+                // Multi-hop: use first leg (fromToken → mWETH)
+                const leg = getPoolForPair(fromToken.symbol, "mWETH");
+                if (!leg) throw new Error("No pool route found");
+                const t0 = TOKENS[leg.token0 as keyof typeof TOKENS];
+                const t1 = TOKENS[leg.token1 as keyof typeof TOKENS];
+                if (t0.address.toLowerCase() < t1.address.toLowerCase()) {
+                    token0Addr = t0.address;
+                    token1Addr = t1.address;
+                } else {
+                    token0Addr = t1.address;
+                    token1Addr = t0.address;
+                }
+            }
+
+            const poolKey = {
+                currency0: token0Addr as `0x${string}`,
+                currency1: token1Addr as `0x${string}`,
+                fee: 3000,
+                tickSpacing: 60,
+                hooks: CONTRACTS.SHADOW_ORDERS_HOOK as `0x${string}`,
+            };
+
+            console.log("📤 Sending createOrder TX to ShadowOrdersHook...");
+            console.log(`   Pool: ${poolKey.currency0.slice(0, 10)}... / ${poolKey.currency1.slice(0, 10)}...`);
+            console.log(`   Fee: 0.0003 ETH`);
+
+            setIsEncrypting(false);
+
+            // Step 3: Send the transaction (user signs in wallet)
+            writeCreateOrder({
+                address: CONTRACTS.SHADOW_ORDERS_HOOK as `0x${string}`,
+                abi: SHADOW_ORDERS_HOOK_ABI,
+                functionName: "createOrder",
+                args: [poolKey, encryptedPrice, encryptedAmount, encryptedIsBuy],
+                value: FHE_FEE,
+                gas: BigInt(1_000_000), // Explicit gas limit for FHE operations
+            });
+        } catch (err) {
+            setIsEncrypting(false);
+            const msg = (err as Error)?.message || "FHE encryption failed";
+            setOrderError(msg);
+            console.error("❌ Order creation failed:", err);
+            console.error("   Error details:", JSON.stringify(err, null, 2));
+        }
+    };
+
+    const isOrderInProgress = isEncrypting || isCreateOrderPending || isConfirmingOrder;
 
     const handleSwapTokens = () => {
-        const temp = fromToken;
         setFromToken(toToken);
-        setToToken(temp);
+        setToToken(fromToken);
         setAmount("");
         setLimitPrice("");
     };
-
-    const handleSelectFromToken = (token: TokenInfo) => {
-        if (token.symbol === toToken.symbol) {
-            setToToken(fromToken);
-        }
-        setFromToken(token);
+    const handleSelectFromToken = (t: TokenInfo) => {
+        if (t.symbol === toToken.symbol) setToToken(fromToken);
+        setFromToken(t);
         setShowFromTokens(false);
     };
-
-    const handleSelectToToken = (token: TokenInfo) => {
-        if (token.symbol === fromToken.symbol) {
-            setFromToken(toToken);
-        }
-        setToToken(token);
+    const handleSelectToToken = (t: TokenInfo) => {
+        if (t.symbol === fromToken.symbol) setFromToken(toToken);
+        setToToken(t);
         setShowToTokens(false);
     };
-
     const handleApprove = () => {
         approve({
             address: fromToken.address as `0x${string}`,
             abi: ERC20_ABI,
             functionName: "approve",
-            args: [
-                CONTRACTS.SHADOW_ORDERS_HOOK as `0x${string}`,
-                amountToSpend * BigInt(2),
-            ],
+            args: [CONTRACTS.KEEPER_ADDRESS as `0x${string}`, amountToSpend * BigInt(2)],
         });
     };
-
-    const handleSetPercentage = (percentage: number) => {
-        if (fromBalance) {
-            const val =
-                (Number(formatUnits(fromBalance as bigint, fromToken.decimals)) *
-                    percentage) /
-                100;
-            setAmount(val.toFixed(6));
-        }
+    const handleSetPercentage = (pct: number) => {
+        if (fromBalance)
+            setAmount(
+                ((Number(formatUnits(fromBalance as bigint, fromToken.decimals)) * pct) / 100).toFixed(6)
+            );
     };
 
+    // ─── Render ───
     return (
         <>
             <Navbar />
             <TooltipProvider>
                 <main className="min-h-screen bg-background pt-20">
                     <div className="container py-8">
-                        {/* Demo Mode Toggle Banner */}
-                        <div className="mb-6 flex items-center justify-between rounded-lg border p-4 bg-muted/30">
-                            <div className="flex items-center gap-3">
-                                {isDemoMode ? (
-                                    <Zap className="h-5 w-5 text-yellow-500" />
-                                ) : (
-                                    <Activity className="h-5 w-5 text-green-500" />
-                                )}
-                                <div>
-                                    <p className="font-semibold">
-                                        {isDemoMode ? "Demo Mode" : "Live Mode"}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                        {isDemoMode
-                                            ? "Simulated price movement after order creation"
-                                            : "Keeper monitors real market prices"}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Label htmlFor="demo-toggle" className="text-sm">
-                                    {isDemoMode ? "Demo" : "Live"}
-                                </Label>
-                                <Switch
-                                    id="demo-toggle"
-                                    checked={isDemoMode}
-                                    onCheckedChange={setIsDemoMode}
-                                />
-                            </div>
-                        </div>
-
                         <div className="grid gap-8 lg:grid-cols-3">
-                            {/* Main Trading Card */}
+                            {/* ─── Main Trading Card ─── */}
                             <div className="lg:col-span-2">
                                 <Card className="border-2">
                                     <CardHeader className="flex flex-row items-center justify-between">
@@ -441,7 +429,7 @@ export default function TradePage() {
                                                 Create Shadow Order
                                             </CardTitle>
                                             <CardDescription>
-                                                Your order details are encrypted with Inco FHE
+                                                Your order details are encrypted with Inco FHE &amp; sent on-chain
                                             </CardDescription>
                                         </div>
                                         <Button
@@ -453,17 +441,17 @@ export default function TradePage() {
                                         </Button>
                                     </CardHeader>
                                     <CardContent className="space-y-6">
-                                        {/* Order Type Header */}
+                                        {/* Order Type */}
                                         <div className="flex items-center gap-2 pb-2 border-b">
                                             <Lock className="h-4 w-4 text-primary" />
-                                            <span className="font-semibold">Limit Order</span>
+                                            <span className="font-semibold">Encrypted Limit Order</span>
                                             <Badge variant="outline" className="ml-auto text-xs">
                                                 <Shield className="h-3 w-3 mr-1" />
                                                 FHE Protected
                                             </Badge>
                                         </div>
 
-                                        {/* From Token Input */}
+                                        {/* From Token */}
                                         <div className="space-y-2">
                                             <div className="flex items-center justify-between">
                                                 <Label>You Pay</Label>
@@ -480,16 +468,11 @@ export default function TradePage() {
                                                         onChange={(e) => setAmount(e.target.value)}
                                                         className="border-0 bg-transparent text-2xl font-semibold p-0 h-auto focus-visible:ring-0"
                                                     />
-                                                    <Popover
-                                                        open={showFromTokens}
-                                                        onOpenChange={setShowFromTokens}
-                                                    >
+                                                    <Popover open={showFromTokens} onOpenChange={setShowFromTokens}>
                                                         <PopoverTrigger asChild>
                                                             <Button variant="secondary" className="gap-2 px-3">
                                                                 <span className="text-xl">{fromToken.icon}</span>
-                                                                <span className="font-semibold">
-                                                                    {fromToken.symbol}
-                                                                </span>
+                                                                <span className="font-semibold">{fromToken.symbol}</span>
                                                                 <ChevronDown className="h-4 w-4" />
                                                             </Button>
                                                         </PopoverTrigger>
@@ -498,22 +481,14 @@ export default function TradePage() {
                                                                 {MOCK_TOKENS.map((token) => (
                                                                     <Button
                                                                         key={token.symbol}
-                                                                        variant={
-                                                                            token.symbol === fromToken.symbol
-                                                                                ? "secondary"
-                                                                                : "ghost"
-                                                                        }
+                                                                        variant={token.symbol === fromToken.symbol ? "secondary" : "ghost"}
                                                                         className="w-full justify-start gap-3"
                                                                         onClick={() => handleSelectFromToken(token)}
                                                                     >
                                                                         <span className="text-xl">{token.icon}</span>
                                                                         <div className="text-left">
-                                                                            <div className="font-medium">
-                                                                                {token.symbol}
-                                                                            </div>
-                                                                            <div className="text-xs text-muted-foreground">
-                                                                                {token.name}
-                                                                            </div>
+                                                                            <div className="font-medium">{token.symbol}</div>
+                                                                            <div className="text-xs text-muted-foreground">{token.name}</div>
                                                                         </div>
                                                                     </Button>
                                                                 ))}
@@ -522,31 +497,21 @@ export default function TradePage() {
                                                     </Popover>
                                                 </div>
                                                 <div className="flex justify-end mt-2">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="text-xs"
-                                                        onClick={() => handleSetPercentage(100)}
-                                                    >
+                                                    <Button variant="outline" size="sm" className="text-xs" onClick={() => handleSetPercentage(100)}>
                                                         Max
                                                     </Button>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* Swap Button */}
+                                        {/* Swap Direction */}
                                         <div className="flex justify-center -my-2 relative z-10">
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                className="rounded-full bg-background"
-                                                onClick={handleSwapTokens}
-                                            >
+                                            <Button variant="outline" size="icon" className="rounded-full bg-background" onClick={handleSwapTokens}>
                                                 <ArrowDownUp className="h-4 w-4" />
                                             </Button>
                                         </div>
 
-                                        {/* To Token Input */}
+                                        {/* To Token */}
                                         <div className="space-y-2">
                                             <div className="flex items-center justify-between">
                                                 <Label>You Receive</Label>
@@ -557,20 +522,13 @@ export default function TradePage() {
                                             <div className="relative rounded-xl border bg-muted/30 p-4">
                                                 <div className="flex items-center justify-between gap-4">
                                                     <div className="text-2xl font-semibold text-muted-foreground">
-                                                        {estimatedOutput !== "0"
-                                                            ? `~${estimatedOutput}`
-                                                            : "0.00"}
+                                                        {estimatedOutput !== "0" ? `~${estimatedOutput}` : "0.00"}
                                                     </div>
-                                                    <Popover
-                                                        open={showToTokens}
-                                                        onOpenChange={setShowToTokens}
-                                                    >
+                                                    <Popover open={showToTokens} onOpenChange={setShowToTokens}>
                                                         <PopoverTrigger asChild>
                                                             <Button variant="secondary" className="gap-2 px-3">
                                                                 <span className="text-xl">{toToken.icon}</span>
-                                                                <span className="font-semibold">
-                                                                    {toToken.symbol}
-                                                                </span>
+                                                                <span className="font-semibold">{toToken.symbol}</span>
                                                                 <ChevronDown className="h-4 w-4" />
                                                             </Button>
                                                         </PopoverTrigger>
@@ -579,22 +537,14 @@ export default function TradePage() {
                                                                 {MOCK_TOKENS.map((token) => (
                                                                     <Button
                                                                         key={token.symbol}
-                                                                        variant={
-                                                                            token.symbol === toToken.symbol
-                                                                                ? "secondary"
-                                                                                : "ghost"
-                                                                        }
+                                                                        variant={token.symbol === toToken.symbol ? "secondary" : "ghost"}
                                                                         className="w-full justify-start gap-3"
                                                                         onClick={() => handleSelectToToken(token)}
                                                                     >
                                                                         <span className="text-xl">{token.icon}</span>
                                                                         <div className="text-left">
-                                                                            <div className="font-medium">
-                                                                                {token.symbol}
-                                                                            </div>
-                                                                            <div className="text-xs text-muted-foreground">
-                                                                                {token.name}
-                                                                            </div>
+                                                                            <div className="font-medium">{token.symbol}</div>
+                                                                            <div className="text-xs text-muted-foreground">{token.name}</div>
                                                                         </div>
                                                                     </Button>
                                                                 ))}
@@ -605,7 +555,7 @@ export default function TradePage() {
                                             </div>
                                         </div>
 
-                                        {/* Current Market Price Display */}
+                                        {/* Market Price */}
                                         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
@@ -619,7 +569,7 @@ export default function TradePage() {
                                                     disabled={isPriceLoading}
                                                     className="h-8 px-2"
                                                 >
-                                                    <RefreshCw className={`h-3 w-3 ${isPriceLoading ? 'animate-spin' : ''}`} />
+                                                    <RefreshCw className={`h-3 w-3 ${isPriceLoading ? "animate-spin" : ""}`} />
                                                 </Button>
                                             </div>
                                             <div className="mt-2 flex items-center justify-between">
@@ -661,7 +611,7 @@ export default function TradePage() {
                                             )}
                                         </div>
 
-                                        {/* Limit Price Input */}
+                                        {/* Limit Price */}
                                         <div className="space-y-2">
                                             <div className="flex items-center gap-2">
                                                 <Label>Your Limit Price</Label>
@@ -670,13 +620,10 @@ export default function TradePage() {
                                                         <Info className="h-4 w-4 text-muted-foreground" />
                                                     </TooltipTrigger>
                                                     <TooltipContent>
-                                                        <p>This price is encrypted using Inco TFHE - no one can see your order price!</p>
+                                                        <p>This price is encrypted using Inco TFHE — no one can see your order price!</p>
                                                     </TooltipContent>
                                                 </Tooltip>
-                                                <Badge
-                                                    variant="outline"
-                                                    className="ml-auto gap-1 text-xs"
-                                                >
+                                                <Badge variant="outline" className="ml-auto gap-1 text-xs">
                                                     <Lock className="h-3 w-3" />
                                                     FHE Encrypted
                                                 </Badge>
@@ -691,7 +638,7 @@ export default function TradePage() {
                                                         className="border-0 bg-transparent text-xl font-semibold p-0 h-auto focus-visible:ring-0"
                                                     />
                                                     <span className="text-muted-foreground font-medium">
-                                                        {fromToken.symbol} per {toToken.symbol}
+                                                        {toToken.symbol} per {fromToken.symbol}
                                                     </span>
                                                 </div>
                                                 {limitPrice && currentMarketPrice && (
@@ -712,49 +659,35 @@ export default function TradePage() {
                                             </div>
                                         </div>
 
-                                        {/* Route Display */}
+                                        {/* Route */}
                                         {route.route.length > 0 && (
                                             <div className="rounded-lg border bg-muted/30 p-4">
                                                 <div className="flex items-center gap-2 text-sm">
                                                     <Route className="h-4 w-4 text-primary" />
                                                     <span className="font-medium">Route:</span>
-                                                    <div className="flex items-center gap-1">
-                                                        <span>
-                                                            {fromToken.icon} {fromToken.symbol}
-                                                        </span>
-                                                        {route.isMultiHop && (
-                                                            <>
-                                                                <span className="text-muted-foreground">→</span>
-                                                                <span>⟠ mWETH</span>
-                                                            </>
-                                                        )}
-                                                        <span className="text-muted-foreground">→</span>
-                                                        <span>
-                                                            {toToken.icon} {toToken.symbol}
-                                                        </span>
-                                                    </div>
+                                                    <span>{fromToken.icon} {fromToken.symbol}</span>
                                                     {route.isMultiHop && (
-                                                        <Badge
-                                                            variant="secondary"
-                                                            className="ml-auto text-xs"
-                                                        >
-                                                            Multi-hop
-                                                        </Badge>
+                                                        <>
+                                                            <span className="text-muted-foreground">→</span>
+                                                            <span>⟠ mWETH</span>
+                                                        </>
+                                                    )}
+                                                    <span className="text-muted-foreground">→</span>
+                                                    <span>{toToken.icon} {toToken.symbol}</span>
+                                                    {route.isMultiHop && (
+                                                        <Badge variant="secondary" className="ml-auto text-xs">Multi-hop</Badge>
                                                     )}
                                                 </div>
                                             </div>
                                         )}
-
-                                        {route.route.length === 0 &&
-                                            fromToken.symbol !== toToken.symbol && (
-                                                <Alert variant="destructive">
-                                                    <AlertCircle className="h-4 w-4" />
-                                                    <AlertDescription>
-                                                        No route found between {fromToken.symbol} and{" "}
-                                                        {toToken.symbol}
-                                                    </AlertDescription>
-                                                </Alert>
-                                            )}
+                                        {route.route.length === 0 && fromToken.symbol !== toToken.symbol && (
+                                            <Alert variant="destructive">
+                                                <AlertCircle className="h-4 w-4" />
+                                                <AlertDescription>
+                                                    No route found between {fromToken.symbol} and {toToken.symbol}
+                                                </AlertDescription>
+                                            </Alert>
+                                        )}
 
                                         {/* Advanced Settings */}
                                         {showAdvanced && (
@@ -763,22 +696,14 @@ export default function TradePage() {
                                                 <div className="space-y-2">
                                                     <div className="flex items-center justify-between">
                                                         <Label>Slippage Tolerance</Label>
-                                                        <span className="text-sm font-medium">
-                                                            {slippage}%
-                                                        </span>
+                                                        <span className="text-sm font-medium">{slippage}%</span>
                                                     </div>
-                                                    <Slider
-                                                        value={[slippage]}
-                                                        onValueChange={([v]) => setSlippage(v)}
-                                                        max={5}
-                                                        step={0.1}
-                                                        className="w-full"
-                                                    />
+                                                    <Slider value={[slippage]} onValueChange={([v]) => setSlippage(v)} max={5} step={0.1} className="w-full" />
                                                 </div>
                                             </div>
                                         )}
 
-                                        {/* Order Summary */}
+                                        {/* Order Preview */}
                                         <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
                                             <h4 className="font-medium flex items-center gap-2">
                                                 <Eye className="h-4 w-4" />
@@ -787,71 +712,59 @@ export default function TradePage() {
                                             <div className="space-y-2 text-sm">
                                                 <div className="flex justify-between">
                                                     <span className="text-muted-foreground">Swap</span>
-                                                    <span className="font-medium">
-                                                        {amount || "0"} {fromToken.symbol} → {estimatedOutput}{" "}
-                                                        {toToken.symbol}
-                                                    </span>
+                                                    <span className="font-medium">{amount || "0"} {fromToken.symbol} → {estimatedOutput} {toToken.symbol}</span>
                                                 </div>
                                                 <div className="flex justify-between">
-                                                    <span className="text-muted-foreground">
-                                                        Limit Price
-                                                    </span>
+                                                    <span className="text-muted-foreground">Limit Price</span>
                                                     <span className="font-medium flex items-center gap-1">
                                                         <Lock className="h-3 w-3 text-primary" />
-                                                        {limitPrice || "0"} {fromToken.symbol}/{toToken.symbol}
+                                                        {limitPrice || "0"} {toToken.symbol}/{fromToken.symbol}
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-between">
-                                                    <span className="text-muted-foreground">
-                                                        Network Fee
-                                                    </span>
+                                                    <span className="text-muted-foreground">Network Fee</span>
                                                     <span className="font-medium">~$0.01</span>
                                                 </div>
                                                 <div className="flex justify-between">
-                                                    <span className="text-muted-foreground">
-                                                        FHE Fee (Inco)
-                                                    </span>
-                                                    <span className="font-medium">~0.001 ETH</span>
+                                                    <span className="text-muted-foreground">FHE Fee (Inco)</span>
+                                                    <span className="font-medium">0.0003 ETH</span>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* Error Message */}
+                                        {/* Error */}
                                         {orderError && (
                                             <Alert variant="destructive">
                                                 <AlertCircle className="h-4 w-4" />
-                                                <AlertDescription>
-                                                    {orderError.message.includes("User rejected")
-                                                        ? "Transaction was rejected"
-                                                        : "Failed to create order. Please try again."}
-                                                </AlertDescription>
+                                                <AlertDescription>{orderError}</AlertDescription>
                                             </Alert>
                                         )}
 
-                                        {/* Success Message */}
-                                        {orderSuccess && orderHash && (
+                                        {/* Success */}
+                                        {orderCreated && createOrderHash && (
                                             <Alert className="border-green-500 bg-green-500/10">
                                                 <Check className="h-4 w-4 text-green-500" />
                                                 <AlertDescription className="text-green-600 space-y-2">
-                                                    <p>
-                                                        Order created successfully!{" "}
+                                                    <p className="font-semibold">Shadow Order confirmed on-chain! ✅</p>
+                                                    <p className="text-sm">
+                                                        Your encrypted limit order has been submitted to the ShadowOrdersHook.
+                                                        Price simulation started — when the limit is reached, the keeper will execute the swap.
+                                                    </p>
+                                                    <div className="flex gap-2">
                                                         <a
-                                                            href={`https://sepolia.basescan.org/tx/${orderHash}`}
+                                                            href={`https://sepolia.basescan.org/tx/${createOrderHash}`}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            className="underline"
+                                                            className="text-primary hover:underline inline-flex items-center gap-1 text-sm"
                                                         >
-                                                            View transaction
+                                                            <ExternalLink className="h-3 w-3" />
+                                                            View TX on BaseScan
                                                         </a>
-                                                    </p>
-                                                    {isDemoMode && (
-                                                        <p className="text-sm">
-                                                            🎮 Demo mode: Watch price simulation on{" "}
-                                                            <a href="/orders" className="underline font-semibold">
-                                                                My Orders →
-                                                            </a>
-                                                        </p>
-                                                    )}
+                                                        <span className="text-muted-foreground">•</span>
+                                                        <a href="/orders" className="underline font-semibold text-sm">
+                                                            Track on My Orders →
+                                                        </a>
+                                                    </div>
                                                 </AlertDescription>
                                             </Alert>
                                         )}
@@ -884,7 +797,7 @@ export default function TradePage() {
                                                 ) : (
                                                     <>
                                                         <Lock className="mr-2 h-5 w-5" />
-                                                        Approve {fromToken.symbol}
+                                                        Approve {fromToken.symbol} for Keeper
                                                     </>
                                                 )}
                                             </Button>
@@ -892,11 +805,14 @@ export default function TradePage() {
                                             <Button
                                                 className="w-full h-14 text-lg bg-primary hover:bg-primary/90"
                                                 onClick={handleCreateOrder}
-                                                disabled={
-                                                    !amount || !limitPrice || isCreating || isConfirmingOrder
-                                                }
+                                                disabled={!amount || !limitPrice || isOrderInProgress}
                                             >
-                                                {isCreating ? (
+                                                {isEncrypting ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                                        Encrypting with FHE...
+                                                    </>
+                                                ) : isCreateOrderPending ? (
                                                     <>
                                                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                                                         Confirm in Wallet...
@@ -904,12 +820,12 @@ export default function TradePage() {
                                                 ) : isConfirmingOrder ? (
                                                     <>
                                                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                                        Creating Encrypted Order...
+                                                        Confirming on Base Sepolia...
                                                     </>
                                                 ) : (
                                                     <>
                                                         <Shield className="mr-2 h-5 w-5" />
-                                                        Create Shadow Order
+                                                        Create Shadow Order (0.0003 ETH)
                                                     </>
                                                 )}
                                             </Button>
@@ -918,95 +834,62 @@ export default function TradePage() {
                                 </Card>
                             </div>
 
-                            {/* Side Panel */}
+                            {/* ─── Side Panel ─── */}
                             <div className="space-y-6">
-                                {/* FHE Explanation */}
                                 <Card>
                                     <CardHeader>
                                         <CardTitle className="flex items-center gap-2 text-lg">
                                             <Lock className="h-5 w-5 text-primary" />
-                                            How FHE Works
+                                            How It Works
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent className="space-y-4">
                                         <div className="space-y-3 text-sm">
-                                            <div className="flex items-start gap-3">
-                                                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                                    <span className="text-xs font-bold text-primary">
-                                                        1
-                                                    </span>
+                                            {[
+                                                {
+                                                    s: "1",
+                                                    t: "FHE Encryption",
+                                                    d: "Your limit price and amount are encrypted in-browser using Inco\u2019s TFHE SDK",
+                                                },
+                                                {
+                                                    s: "2",
+                                                    t: "On-Chain Transaction",
+                                                    d: "Encrypted ciphertext is sent to ShadowOrdersHook on Base Sepolia (0.0003 ETH fee)",
+                                                },
+                                                {
+                                                    s: "3",
+                                                    t: "Price Monitoring",
+                                                    d: "Market price is tracked — when it reaches your limit, the keeper is triggered",
+                                                },
+                                                {
+                                                    s: "4",
+                                                    t: "MEV-Free Execution",
+                                                    d: "Keeper executes the swap via Uniswap V4 pool — no front-running possible",
+                                                },
+                                            ].map(({ s, t, d }) => (
+                                                <div key={s} className="flex items-start gap-3">
+                                                    <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                                        <span className="text-xs font-bold text-primary">{s}</span>
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-medium">{t}</p>
+                                                        <p className="text-muted-foreground">{d}</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="font-medium">Client-Side Encryption</p>
-                                                    <p className="text-muted-foreground">
-                                                        Your limit price and amount are encrypted in your
-                                                        browser using Inco&apos;s TFHE library
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-start gap-3">
-                                                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                                    <span className="text-xs font-bold text-primary">
-                                                        2
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium">On-Chain Storage</p>
-                                                    <p className="text-muted-foreground">
-                                                        Encrypted ciphertext is stored on Base Sepolia - no
-                                                        one can see your order details
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-start gap-3">
-                                                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                                    <span className="text-xs font-bold text-primary">
-                                                        3
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium">
-                                                        Computation on Encrypted Data
-                                                    </p>
-                                                    <p className="text-muted-foreground">
-                                                        Keepers can check if price conditions are met without
-                                                        decrypting
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-start gap-3">
-                                                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                                    <span className="text-xs font-bold text-primary">
-                                                        4
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium">MEV-Free Execution</p>
-                                                    <p className="text-muted-foreground">
-                                                        Order executes via Uniswap V4 hook when conditions are
-                                                        met
-                                                    </p>
-                                                </div>
-                                            </div>
+                                            ))}
                                         </div>
                                         <div className="pt-2 border-t">
                                             <p className="text-xs text-muted-foreground">
                                                 Powered by{" "}
-                                                <a
-                                                    href="https://www.inco.org"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-primary hover:underline"
-                                                >
+                                                <a href="https://www.inco.org" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                                                     Inco Network
                                                 </a>{" "}
-                                                TFHE (Threshold Fully Homomorphic Encryption)
+                                                TFHE
                                             </p>
                                         </div>
                                     </CardContent>
                                 </Card>
 
-                                {/* Wallet Balances */}
                                 {isConnected && (
                                     <Card>
                                         <CardHeader>
@@ -1015,18 +898,13 @@ export default function TradePage() {
                                         <CardContent>
                                             <div className="space-y-3">
                                                 {MOCK_TOKENS.map((token) => (
-                                                    <TokenBalance
-                                                        key={token.symbol}
-                                                        token={token}
-                                                        address={address!}
-                                                    />
+                                                    <TokenBalance key={token.symbol} token={token} address={address!} />
                                                 ))}
                                             </div>
                                         </CardContent>
                                     </Card>
                                 )}
 
-                                {/* Contract Info */}
                                 <Card>
                                     <CardHeader>
                                         <CardTitle className="text-lg">Contract Info</CardTitle>
@@ -1040,14 +918,25 @@ export default function TradePage() {
                                                 rel="noopener noreferrer"
                                                 className="flex items-center gap-1 text-primary hover:underline"
                                             >
-                                                {CONTRACTS.SHADOW_ORDERS_HOOK.slice(0, 6)}...
-                                                {CONTRACTS.SHADOW_ORDERS_HOOK.slice(-4)}
+                                                {CONTRACTS.SHADOW_ORDERS_HOOK.slice(0, 6)}...{CONTRACTS.SHADOW_ORDERS_HOOK.slice(-4)}
+                                                <ExternalLink className="h-3 w-3" />
+                                            </a>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Keeper</span>
+                                            <a
+                                                href={`https://sepolia.basescan.org/address/${CONTRACTS.KEEPER_ADDRESS}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-1 text-primary hover:underline"
+                                            >
+                                                {CONTRACTS.KEEPER_ADDRESS.slice(0, 6)}...{CONTRACTS.KEEPER_ADDRESS.slice(-4)}
                                                 <ExternalLink className="h-3 w-3" />
                                             </a>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-muted-foreground">Network</span>
-                                            <span>Base Sepolia (Testnet)</span>
+                                            <span>Base Sepolia</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-muted-foreground">Chain ID</span>
@@ -1065,25 +954,14 @@ export default function TradePage() {
     );
 }
 
-// Token Balance Component
-function TokenBalance({
-    token,
-    address,
-}: {
-    token: TokenInfo;
-    address: string;
-}) {
+function TokenBalance({ token, address }: { token: TokenInfo; address: string }) {
     const { data: balance } = useReadContract({
         address: token.address as `0x${string}`,
         abi: ERC20_ABI,
         functionName: "balanceOf",
         args: [address as `0x${string}`],
     });
-
-    const formatted = balance
-        ? Number(formatUnits(balance as bigint, token.decimals)).toFixed(4)
-        : "0";
-
+    const formatted = balance ? Number(formatUnits(balance as bigint, token.decimals)).toFixed(4) : "0";
     return (
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">

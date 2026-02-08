@@ -1,22 +1,31 @@
 // Shadow Orders Hook ABI - Core functions
+// Must match ShadowOrdersHook.sol exactly
 export const SHADOW_ORDERS_HOOK_ABI = [
     // Order Management
     {
         inputs: [
-            { name: "poolId", type: "bytes32" },
-            { name: "encryptedLimitPrice", type: "bytes" },
-            { name: "encryptedAmount", type: "bytes" },
-            { name: "inputProof", type: "bytes" },
-            { name: "isBuy", type: "bool" },
+            {
+                name: "poolKey",
+                type: "tuple",
+                components: [
+                    { name: "currency0", type: "address" },
+                    { name: "currency1", type: "address" },
+                    { name: "fee", type: "uint24" },
+                    { name: "tickSpacing", type: "int24" },
+                    { name: "hooks", type: "address" },
+                ],
+            },
+            { name: "limitPriceInput", type: "bytes" },
+            { name: "amountInput", type: "bytes" },
+            { name: "isBuyOrderInput", type: "bytes" },
         ],
         name: "createOrder",
         outputs: [{ name: "orderId", type: "uint256" }],
-        stateMutability: "nonpayable",
+        stateMutability: "payable",
         type: "function",
     },
     {
         inputs: [
-            { name: "poolId", type: "bytes32" },
             { name: "orderId", type: "uint256" },
         ],
         name: "cancelOrder",
@@ -26,49 +35,49 @@ export const SHADOW_ORDERS_HOOK_ABI = [
     },
     // View Functions
     {
-        inputs: [
-            { name: "poolId", type: "bytes32" },
-            { name: "orderId", type: "uint256" },
-        ],
-        name: "getOrder",
+        inputs: [{ name: "orderId", type: "uint256" }],
+        name: "getOrderInfo",
         outputs: [
-            {
-                components: [
-                    { name: "owner", type: "address" },
-                    { name: "encryptedLimitPrice", type: "uint256" },
-                    { name: "encryptedAmount", type: "uint256" },
-                    { name: "isBuy", type: "bool" },
-                    { name: "isActive", type: "bool" },
-                    { name: "createdAt", type: "uint256" },
-                ],
-                name: "",
-                type: "tuple",
-            },
-        ],
-        stateMutability: "view",
-        type: "function",
-    },
-    {
-        inputs: [{ name: "poolId", type: "bytes32" }],
-        name: "getActiveOrders",
-        outputs: [{ name: "", type: "uint256[]" }],
-        stateMutability: "view",
-        type: "function",
-    },
-    {
-        inputs: [
+            { name: "owner", type: "address" },
+            { name: "isActive", type: "bool" },
             { name: "poolId", type: "bytes32" },
-            { name: "user", type: "address" },
+            { name: "createdAt", type: "uint256" },
         ],
-        name: "getUserOrders",
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [{ name: "owner", type: "address" }],
+        name: "getOrdersByOwner",
         outputs: [{ name: "", type: "uint256[]" }],
         stateMutability: "view",
         type: "function",
     },
     {
         inputs: [{ name: "poolId", type: "bytes32" }],
-        name: "getOrderCount",
+        name: "getActiveOrderCount",
         outputs: [{ name: "", type: "uint256" }],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [],
+        name: "getTotalOrderCount",
+        outputs: [{ name: "", type: "uint256" }],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [],
+        name: "nextOrderId",
+        outputs: [{ name: "", type: "uint256" }],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [],
+        name: "keeper",
+        outputs: [{ name: "", type: "address" }],
         stateMutability: "view",
         type: "function",
     },
@@ -76,10 +85,10 @@ export const SHADOW_ORDERS_HOOK_ABI = [
     {
         anonymous: false,
         inputs: [
-            { indexed: true, name: "poolId", type: "bytes32" },
             { indexed: true, name: "orderId", type: "uint256" },
             { indexed: true, name: "owner", type: "address" },
-            { indexed: false, name: "isBuy", type: "bool" },
+            { indexed: true, name: "poolId", type: "bytes32" },
+            { indexed: false, name: "createdAt", type: "uint256" },
         ],
         name: "OrderCreated",
         type: "event",
@@ -87,8 +96,8 @@ export const SHADOW_ORDERS_HOOK_ABI = [
     {
         anonymous: false,
         inputs: [
-            { indexed: true, name: "poolId", type: "bytes32" },
             { indexed: true, name: "orderId", type: "uint256" },
+            { indexed: true, name: "owner", type: "address" },
         ],
         name: "OrderCancelled",
         type: "event",
@@ -96,8 +105,11 @@ export const SHADOW_ORDERS_HOOK_ABI = [
     {
         anonymous: false,
         inputs: [
-            { indexed: true, name: "poolId", type: "bytes32" },
             { indexed: true, name: "orderId", type: "uint256" },
+            { indexed: true, name: "owner", type: "address" },
+            { indexed: true, name: "executor", type: "address" },
+            { indexed: false, name: "executionPrice", type: "uint256" },
+            { indexed: false, name: "keeperFee", type: "uint256" },
         ],
         name: "OrderExecuted",
         type: "event",

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 
 interface OrderSimulation {
     orderId: string;
@@ -15,27 +15,33 @@ interface OrderSimulation {
     createdAt: number;
     executedAt?: number;
     executionTxHash?: string;
+    onChainOrderId?: number | null;
+    tickCount?: number;
 }
 
 interface DemoModeContextType {
     isDemoMode: boolean;
     setIsDemoMode: (value: boolean) => void;
     orders: OrderSimulation[];
-    addOrder: (order: Omit<OrderSimulation, "currentSimulatedPrice" | "status" | "createdAt">) => void;
+    addOrder: (order: Omit<OrderSimulation, "currentSimulatedPrice" | "status" | "createdAt" | "tickCount">) => void;
     clearOrders: () => void;
     simulatedPrices: { [key: string]: number };
     getSimulatedPrice: (fromToken: string, toToken: string) => number | null;
+    markOrderExecuted: (orderId: string, executionTxHash: string) => void;
+    markOrderSwapFailed: (orderId: string) => void;
 }
 
 const DemoModeContext = createContext<DemoModeContextType | undefined>(undefined);
 
 // Simulation speed - price updates every 2 seconds
 const SIMULATION_INTERVAL = 2000;
-// Price drop per interval (percentage of distance to target)
-const PRICE_DROP_RATE = 0.08; // 8% closer to target each tick
+// Price movement per tick - 12% closer to target each tick
+const PRICE_DROP_RATE = 0.12;
+// After this many ticks, force execution (prevents infinite asymptotic approach)
+const MAX_TICKS_BEFORE_EXECUTE = 15;
 
 export function DemoModeProvider({ children }: { children: ReactNode }) {
-    const [isDemoMode, setIsDemoModeState] = useState(true);
+    const [isDemoMode, setIsDemoModeState] = useState(false);
     const [orders, setOrdersState] = useState<OrderSimulation[]>([]);
     const [simulatedPrices, setSimulatedPrices] = useState<{ [key: string]: number }>({});
 
@@ -75,14 +81,17 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
         });
     }, []);
 
-    // Price simulation effect - runs when in demo mode
+    // Unified price simulation effect
+    // IMPORTANT: This ONLY simulates price movement and transitions to "executing".
+    // It does NOT generate fake TX hashes or auto-transition to "executed".
+    // The SwapExecutor component handles the REAL on-chain swap when status = "executing".
     useEffect(() => {
         if (!isDemoMode) {
             console.log("DemoMode: Simulation disabled (not in demo mode)");
             return;
         }
 
-        console.log("DemoMode: Starting price simulation interval");
+        console.log("DemoMode: Starting unified simulation interval");
 
         const interval = setInterval(() => {
             setOrdersState(prevOrders => {
@@ -91,46 +100,59 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
                     return prevOrders;
                 }
 
-                console.log("DemoMode: Simulating price for", pendingOrders.length, "pending orders");
-
                 const newOrders = prevOrders.map(order => {
-                    if (order.status !== "pending") return order;
+                    // Handle PENDING orders - simulate price movement
+                    if (order.status === "pending") {
+                        const tickCount = (order.tickCount || 0) + 1;
+                        const direction = order.startPrice > order.limitPrice ? -1 : 1;
+                        const distance = Math.abs(order.currentSimulatedPrice - order.limitPrice);
+                        const step = distance * PRICE_DROP_RATE;
 
-                    // Calculate new simulated price (moving toward limit price)
-                    const direction = order.startPrice > order.limitPrice ? -1 : 1;
-                    const distance = Math.abs(order.currentSimulatedPrice - order.limitPrice);
-                    const step = distance * PRICE_DROP_RATE;
+                        let newPrice = order.currentSimulatedPrice + (step * direction);
 
-                    let newPrice = order.currentSimulatedPrice + (step * direction);
+                        // Add some noise for realism
+                        const noise = (Math.random() - 0.5) * step * 0.2;
+                        newPrice += noise;
 
-                    // Add some noise for realism
-                    const noise = (Math.random() - 0.5) * step * 0.3;
-                    newPrice += noise;
+                        // Clamp to not overshoot the target
+                        if (direction === -1) {
+                            newPrice = Math.max(newPrice, order.limitPrice);
+                        } else {
+                            newPrice = Math.min(newPrice, order.limitPrice);
+                        }
 
-                    console.log(`DemoMode: Order ${order.orderId.slice(0, 15)}... price: ${order.currentSimulatedPrice.toFixed(8)} → ${newPrice.toFixed(8)} (target: ${order.limitPrice})`);
+                        // Check if we've reached the limit price:
+                        // 1. Within 0.5% threshold of target, OR
+                        // 2. Exceeded max ticks (force execution to avoid infinite approach)
+                        const threshold = Math.abs(order.limitPrice) * 0.005; // 0.5% threshold
+                        const withinThreshold = Math.abs(newPrice - order.limitPrice) <= threshold;
+                        const forcedByTicks = tickCount >= MAX_TICKS_BEFORE_EXECUTE;
+                        const reachedTarget = withinThreshold || forcedByTicks;
 
-                    // Check if we've reached the limit price
-                    const reachedTarget = direction === -1
-                        ? newPrice <= order.limitPrice
-                        : newPrice >= order.limitPrice;
+                        if (reachedTarget) {
+                            console.log(`🎯 Order ${order.orderId.slice(0, 12)}... reached target after ${tickCount} ticks! ${forcedByTicks ? "(forced)" : "(threshold)"}`);
+                            // Transition to "executing" — the SwapExecutor component
+                            // will detect this and fire the REAL on-chain swap.
+                            return {
+                                ...order,
+                                currentSimulatedPrice: order.limitPrice,
+                                status: "executing" as const,
+                                tickCount,
+                            };
+                        }
 
-                    if (reachedTarget) {
-                        // Order should execute!
-                        console.log("🎯 DemoMode: Order reached target! Transitioning to executing...");
                         return {
                             ...order,
-                            currentSimulatedPrice: order.limitPrice,
-                            status: "executing" as const,
+                            currentSimulatedPrice: newPrice,
+                            tickCount,
                         };
                     }
 
-                    return {
-                        ...order,
-                        currentSimulatedPrice: newPrice,
-                    };
+                    // "executing" orders are handled by SwapExecutor — don't touch them here
+                    return order;
                 });
 
-                // Save to localStorage on every update so UI shows latest prices
+                // Save to localStorage
                 localStorage.setItem("shadow-orders-pending", JSON.stringify(newOrders));
 
                 return newOrders;
@@ -143,56 +165,14 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
         };
     }, [isDemoMode]);
 
-    // Track which orders are already being executed to prevent duplicate timeouts
-    const executingTimeoutsRef = useRef<Set<string>>(new Set());
-
-    // Handle executing → executed transition (simulated keeper execution)
-    useEffect(() => {
-        const executingOrders = orders.filter(o => o.status === "executing");
-
-        executingOrders.forEach(order => {
-            // Skip if we already started execution for this order
-            if (executingTimeoutsRef.current.has(order.orderId)) {
-                return;
-            }
-            
-            // Mark this order as being executed
-            executingTimeoutsRef.current.add(order.orderId);
-            console.log("🔄 DemoMode: Starting execution for order", order.orderId.slice(0, 15));
-
-            // Simulate keeper execution delay (2-3 seconds)
-            const delay = 2000 + Math.random() * 1000;
-            console.log(`⏳ DemoMode: Order ${order.orderId.slice(0, 15)}... will execute in ${(delay/1000).toFixed(1)}s`);
-
-            setTimeout(() => {
-                console.log(`✅ DemoMode: Executing order ${order.orderId.slice(0, 15)}...`);
-                setOrders(prev => prev.map(o => {
-                    if (o.orderId === order.orderId && o.status === "executing") {
-                        const executedOrder = {
-                            ...o,
-                            status: "executed" as const,
-                            executedAt: Date.now(),
-                            // Simulated execution tx hash
-                            executionTxHash: `0x${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`.slice(0, 66),
-                        };
-                        console.log("🎉 DemoMode: Order executed!", executedOrder);
-                        return executedOrder;
-                    }
-                    return o;
-                }));
-                // Clean up the tracking
-                executingTimeoutsRef.current.delete(order.orderId);
-            }, delay);
-        });
-    }, [orders, setOrders]);
-
-    const addOrder = useCallback((order: Omit<OrderSimulation, "currentSimulatedPrice" | "status" | "createdAt">) => {
+    const addOrder = useCallback((order: Omit<OrderSimulation, "currentSimulatedPrice" | "status" | "createdAt" | "tickCount">) => {
         console.log("DemoModeContext: Adding order", order);
         const newOrder: OrderSimulation = {
             ...order,
             currentSimulatedPrice: order.startPrice,
             status: "pending",
             createdAt: Date.now(),
+            tickCount: 0,
         };
         setOrders(prev => {
             console.log("DemoModeContext: Previous orders count:", prev.length);
@@ -212,6 +192,45 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
         return simulatedPrices[key] || null;
     }, [simulatedPrices]);
 
+    // Called by SwapExecutor when the REAL on-chain swap succeeds
+    const markOrderExecuted = useCallback((orderId: string, txHash: string) => {
+        console.log(`✅ DemoMode: markOrderExecuted orderId=${orderId.slice(0, 12)}... txHash=${txHash.slice(0, 12)}...`);
+        setOrders(prev => {
+            const updated = prev.map(o => {
+                if (o.orderId === orderId) {
+                    return {
+                        ...o,
+                        status: "executed" as const,
+                        executedAt: Date.now(),
+                        executionTxHash: txHash,
+                    };
+                }
+                return o;
+            });
+            localStorage.setItem("shadow-orders-pending", JSON.stringify(updated));
+            return updated;
+        });
+    }, [setOrders]);
+
+    // Called by SwapExecutor when the REAL on-chain swap fails
+    const markOrderSwapFailed = useCallback((orderId: string) => {
+        console.log(`❌ DemoMode: markOrderSwapFailed orderId=${orderId.slice(0, 12)}... — reverting to pending`);
+        setOrders(prev => {
+            const updated = prev.map(o => {
+                if (o.orderId === orderId) {
+                    return {
+                        ...o,
+                        status: "pending" as const,
+                        tickCount: Math.max(0, (o.tickCount || 0) - 3),
+                    };
+                }
+                return o;
+            });
+            localStorage.setItem("shadow-orders-pending", JSON.stringify(updated));
+            return updated;
+        });
+    }, [setOrders]);
+
     return (
         <DemoModeContext.Provider
             value={{
@@ -222,6 +241,8 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
                 clearOrders,
                 simulatedPrices,
                 getSimulatedPrice,
+                markOrderExecuted,
+                markOrderSwapFailed,
             }}
         >
             {children}

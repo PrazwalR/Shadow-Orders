@@ -4,9 +4,9 @@ import { http, WagmiProvider, createConfig } from "wagmi";
 import { baseSepolia } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider, connectorsForWallets, darkTheme, lightTheme } from "@rainbow-me/rainbowkit";
-import { coinbaseWallet, injectedWallet } from "@rainbow-me/rainbowkit/wallets";
+import { metaMaskWallet, coinbaseWallet, injectedWallet } from "@rainbow-me/rainbowkit/wallets";
 import "@rainbow-me/rainbowkit/styles.css";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 
 // Setup wallet connectors - injectedWallet detects MetaMask and other browser extensions
@@ -15,6 +15,7 @@ const connectors = connectorsForWallets(
         {
             groupName: "Recommended",
             wallets: [
+                metaMaskWallet,
                 injectedWallet,
                 coinbaseWallet,
             ],
@@ -26,12 +27,16 @@ const connectors = connectorsForWallets(
     }
 );
 
-// Configure wagmi with direct wallet support
+// Configure wagmi with direct wallet support + fallback RPCs
 const config = createConfig({
     connectors,
     chains: [baseSepolia],
     transports: {
-        [baseSepolia.id]: http("https://sepolia.base.org"),
+        [baseSepolia.id]: http("https://sepolia.base.org", {
+            batch: { wait: 100 },
+            retryCount: 3,
+            timeout: 30_000,
+        }),
     },
     ssr: true,
 });
@@ -42,6 +47,19 @@ interface Web3ProviderProps {
 
 function RainbowKitThemeWrapper({ children }: { children: ReactNode }) {
     const { resolvedTheme } = useTheme();
+    const [mounted, setMounted] = useState(false);
+
+    // Wait until client-side mount so resolvedTheme is stable
+    // This prevents SSR/client mismatch on RainbowKit's inline CSS
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    // During SSR / before hydration, render children without RainbowKit wrapper
+    // to avoid theme-dependent inline styles from differing
+    if (!mounted) {
+        return null;
+    }
 
     return (
         <RainbowKitProvider

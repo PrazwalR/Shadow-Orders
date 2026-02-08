@@ -5,6 +5,9 @@ export const CONTRACTS = {
     // Core Hook Contract
     SHADOW_ORDERS_HOOK: "0x18a398ec7893303Ee3fe2d64D98Edd806C6D80c4" as const,
 
+    // Keeper Address (executes swaps on behalf of users)
+    KEEPER_ADDRESS: "0x5E48Fda9d06f646aa6Bc4714462Ecb21327bC30a" as const,
+
     // Uniswap V4 Contracts
     POOL_MANAGER: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408" as const,
     POOL_SWAP_TEST: "0x8b5bcc363dde2614281ad875bad385e0a785d3b9" as const,
@@ -152,12 +155,6 @@ export const CHAIN_CONFIG = {
         symbol: "ETH",
         decimals: 18,
     },
-} as const;
-
-// API Configuration
-export const API_CONFIG = {
-    COINGECKO_API_KEY: "CG-ccPUqbaPdWdXJZ1pRREqjjaK",
-    COINGECKO_BASE_URL: "https://pro-api.coingecko.com/api/v3",
 } as const;
 
 // Token type for type safety

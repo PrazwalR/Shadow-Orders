@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useCallback } from "react";
-import { API_CONFIG } from "@/config/contracts";
 import { useAppStore } from "@/store/app-store";
 
 const COINGECKO_IDS = [
@@ -40,12 +39,7 @@ export function useMarketData() {
         try {
             const ids = COINGECKO_IDS.join(",");
             const response = await fetch(
-                `${API_CONFIG.COINGECKO_BASE_URL}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=true&price_change_percentage=24h`,
-                {
-                    headers: {
-                        "x-cg-pro-api-key": API_CONFIG.COINGECKO_API_KEY,
-                    },
-                }
+                `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=true&price_change_percentage=24h`
             );
 
             if (!response.ok) {

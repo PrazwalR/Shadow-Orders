@@ -6,7 +6,8 @@ import type { Metadata } from "next";
 import { StyleGlideProvider } from "@/components/styleglide-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Web3Provider } from "@/providers/web3-provider";
-import { DemoModeProvider } from "@/contexts/demo-mode-context";
+import { OrderTrackingProvider } from "@/contexts/order-tracking-context";
+import { SwapExecutor } from "@/components/swap-executor";
 import "@/styles/globals.css";
 
 const dmSans = localFont({
@@ -145,10 +146,11 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Web3Provider>
-            <DemoModeProvider>
+            <OrderTrackingProvider>
+              <SwapExecutor />
               <StyleGlideProvider />
               <main className="">{children}</main>
-            </DemoModeProvider>
+            </OrderTrackingProvider>
           </Web3Provider>
         </ThemeProvider>
       </body>
