@@ -17,9 +17,11 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 /// @title ShadowOrdersHook
-/// @notice Privacy-preserving limit orders using FHE encryption on Uniswap V4
-/// @dev Encrypted limit prices and amounts are stored using Inco's FHE (euint256)
-///      Only the keeper and order owner can see when orders should execute
+/// @notice Privacy-preserving limit orders using TEE encryption on Uniswap V4
+/// @dev Encrypted limit prices and amounts are stored using Inco Lightning's TEE (euint256)
+///      Order parameters remain encrypted on-chain, preventing MEV and front-running
+/// @author Shadow Orders Team
+/// @custom:security-contact security@shadoworders.xyz
 contract ShadowOrdersHook is BaseHook {
     using e for *;
     using PoolIdLibrary for PoolKey;
