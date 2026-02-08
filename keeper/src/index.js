@@ -30,6 +30,10 @@ const SIMULATED_PRICES = {
 
 class KeeperBot {
     constructor() {
+        if (!KEEPER_PRIVATE_KEY) {
+            throw new Error('❌ KEEPER_PRIVATE_KEY environment variable is required');
+        }
+        
         this.provider = new ethers.JsonRpcProvider(RPC_URL);
         this.wallet = new ethers.Wallet(KEEPER_PRIVATE_KEY, this.provider);
         this.hook = new ethers.Contract(HOOK_ADDRESS, HOOK_ABI, this.wallet);
@@ -40,6 +44,7 @@ class KeeperBot {
         console.log('Mode:', DEMO_MODE ? '🎮 DEMO' : '🔴 LIVE');
         console.log('Keeper:', this.wallet.address);
         console.log('Hook:', HOOK_ADDRESS);
+        console.log('RPC:', RPC_URL);
         console.log('============================\n');
     }
 
