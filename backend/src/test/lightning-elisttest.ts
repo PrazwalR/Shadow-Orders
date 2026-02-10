@@ -18,7 +18,6 @@ import { type E2EConfig } from './lightning-test.js';
 
 import type { E2EParams } from './lightning-test.js';
 
-// Deploys the ElistTest.sol contract on the host chain.
 async function deployElistTest(cfg: E2EConfig): Promise<Address> {
   console.log();
   console.log(`Deploying ElistTest.sol contract ...`);
@@ -127,7 +126,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
 
         expect(sim.result).toBeDefined();
 
-        // Verify the appended element
         const getSim = await elistTest.simulate.listGet([3]);
         const getTxHash = await elistTest.write.listGet([3]);
         await publicClient.waitForTransactionReceipt({ hash: getTxHash });
@@ -163,7 +161,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
 
     describe('List Set', () => {
       it('should set element at index', async () => {
-        // Create a fresh list first with unique values
         const listValues = [111, 222, 333];
         const listCts = [];
         for (const v of listValues) {
@@ -180,7 +177,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
         );
         await publicClient.waitForTransactionReceipt({ hash: createTxHash });
 
-        // Now set index 0 to 999
         const ctIndex = await zap.encrypt(0, {
           accountAddress: walletClient.account.address,
           dappAddress: elistTestAddress,
@@ -196,9 +192,8 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
         const txHash = await elistTest.write.listSet([ctIndex, ctValue], { value: parseEther('0.0002') });
         await publicClient.waitForTransactionReceipt({ hash: txHash });
 
-        await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait for 5 seconds
+        await new Promise((resolve) => setTimeout(resolve, 5000));
         expect(sim.result).toBeDefined();
-        // Verify the set element
         const getSim = await elistTest.simulate.listGet([0]);
         const getTxHash = await elistTest.write.listGet([0]);
         await publicClient.waitForTransactionReceipt({ hash: getTxHash });
@@ -237,7 +232,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
 
         expect(sim.result).toBeDefined();
 
-        // Verify range element
         const getSim = await elistTest.simulate.listGetRange([2]);
         const getTxHash = await elistTest.write.listGetRange([2]);
         await publicClient.waitForTransactionReceipt({ hash: getTxHash });
@@ -277,7 +271,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
 
     describe('List Shuffle', () => {
       it('should shuffle list and change element positions', async () => {
-        // Create a fresh list with unique values
         const values = [100, 200, 300, 400, 500];
         const inputCts = [];
         for (const value of values) {
@@ -295,7 +288,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
         );
         await publicClient.waitForTransactionReceipt({ hash: createTxHash });
 
-        // Get all elements before shuffle
         const valuesBefore: bigint[] = [];
         for (let i = 0; i < values.length; i++) {
           const getSim = await elistTest.simulate.listGet([i]);
@@ -307,7 +299,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
         }
         console.log('Elements before shuffle:', valuesBefore);
 
-        // Shuffle the list
         const sim = await elistTest.simulate.listShuffle([], { value: parseEther('0.0001') });
         const txHash = await elistTest.write.listShuffle([], { value: parseEther('0.0001') });
         await publicClient.waitForTransactionReceipt({ hash: txHash });
@@ -315,7 +306,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
         console.log('Shuffled list handle:', sim.result);
         expect(sim.result).toBeDefined();
 
-        // Get all elements after shuffle
         const valuesAfter: bigint[] = [];
         for (let i = 0; i < values.length; i++) {
           const getSim = await elistTest.simulate.listGet([i]);
@@ -327,12 +317,10 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
         }
         console.log('Elements after shuffle:', valuesAfter);
 
-        // Verify all original values are still present (just reordered)
         for (const val of values) {
           expect(valuesAfter).toContain(BigInt(val));
         }
 
-        // Check if at least one element changed position
         let positionChanged = false;
         for (let i = 0; i < values.length; i++) {
           if (valuesBefore[i] !== valuesAfter[i]) {
@@ -348,7 +336,6 @@ export function runElistTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EP
 
     describe('List Reverse', () => {
       it('should reverse list', async () => {
-        // Create a fresh list with unique values (different from other tests)
         const values = [11, 22, 33];
         const inputCts = [];
         for (const value of values) {

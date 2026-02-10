@@ -6,17 +6,10 @@ import { Lightning } from '@inco/js/lite';
 import { privateKeyToAccount } from 'viem/accounts';
 import { runElistTestE2ETest } from './lightning-elisttest.ts';
 
-// E2EConfig contains all configuration needed to run a test against
-// a specific deployment.
 export interface E2EConfig {
-  // Ethereum Private key of the user account sending the transaction or
-  // requesting a reencryption. Needs to have some tokens on the chain.
   senderPrivKey: Hex;
   chain: Chain;
-  // RPC of the host chain.
   hostChainRpcUrl: string;
-  // Address of the confidential token contract.
-  // dappAddress: Address;
 }
 export interface E2EParams {
   walletClient: WalletClient<Transport, Chain, Account>;

@@ -15,7 +15,6 @@ interface Order {
     isBuy: boolean;
     isActive: boolean;
     createdAt: number;
-    // Note: price and amount are encrypted, stored as handles
     encryptedLimitPrice: bigint;
     encryptedAmount: bigint;
 }

@@ -30,14 +30,11 @@ contract CreateTestOrder is Script {
             hooks: IHooks(hookAddress)
         });
         
-        // Prepare FHE inputs (in production, encrypt via Inco SDK)
-        // For testing, use fake ciphertexts
-        bytes memory limitPrice = abi.encodePacked(uint256(2900e18)); // $2900 limit
-        bytes memory amount = abi.encodePacked(uint256(1e18)); // 1 ETH
-        bytes memory isBuyOrder = abi.encodePacked(true); // Buy order
+        bytes memory limitPrice = abi.encodePacked(uint256(2900e18));
+        bytes memory amount = abi.encodePacked(uint256(1e18));
+        bytes memory isBuyOrder = abi.encodePacked(true);
         
-        // Get required fee
-        uint256 fee = 0.0003 ether; // 3 FHE operations
+        uint256 fee = 0.0003 ether;
         
         console.log("Fee required:", fee);
         console.log("Creating order with:");

@@ -11,7 +11,6 @@ export function useTokenBalances() {
     const { address, isConnected } = useAccount();
     const { setBalances } = useAppStore();
 
-    // Read balance for each token
     const { data: usdcBalance } = useReadContract({
         address: CONTRACTS.MOCK_USDC,
         abi: ERC20_ABI,

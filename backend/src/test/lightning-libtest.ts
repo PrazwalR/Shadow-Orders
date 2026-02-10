@@ -19,7 +19,6 @@ import { type E2EConfig } from './lightning-test.js';
 
 import type { E2EParams } from './lightning-test.js';
 
-// Deploys the LibTest.sol contract on the host chain.
 async function deployLibTest(cfg: E2EConfig): Promise<Address> {
   console.log();
   console.log(`Deploying LibTest.sol contract ...`);
@@ -454,15 +453,11 @@ export function runLibTestE2ETest(zap: Lightning, cfg: E2EConfig, params: E2EPar
         expect(value).toBe(true);
       }, 20_000);
       it('should test reveal address', async () => {
-        // Note: sim.result is undefined because testRevealEAddress returns void (no outputs)
-        // The reveal function just reveals the value on-chain but doesn't return a handle
         const sim = await libTest.simulate.testRevealEAddress([handleAddress]);
         const txHash = await libTest.write.testRevealEAddress([handleAddress]);
         await publicClient.waitForTransactionReceipt({ hash: txHash });
-        // After revealing, we decrypt the original handle to verify the value
         const decryptedArr = await zap.attestedDecrypt(walletClient as any, [handleAddress]);
         const value = decryptedArr[0]?.plaintext.value;
-        // Convert address to BigInt - use the same conversion as in createEaddressHandle
         const expectedAddressValue = BigInt(walletClient.account.address);
         expect(value).toBe(expectedAddressValue);
       }, 20_000);

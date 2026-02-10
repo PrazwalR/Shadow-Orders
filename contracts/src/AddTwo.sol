@@ -21,10 +21,7 @@ contract AddTwo is Fee {
         return a.add(two);
     }
 
-    // addTwoEOA is the equivalent of addTwo, but it allows an EOA to call it
-    // with an encrypted input.
     function addTwoEOA(bytes memory uint256EInput) external payable refundUnspent returns (euint256 result) {
-        // require(msg.value == inco.getFee(), "Fee not paid");
         euint256 value = e.newEuint256(uint256EInput, msg.sender);
         euint256 result = this.addTwo(value);
         e.allow(result, address(this));

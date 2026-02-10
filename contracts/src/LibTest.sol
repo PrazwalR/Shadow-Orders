@@ -12,14 +12,6 @@ contract LibTest {
     using e for eaddress;
     using e for address;
 
-    // bytes public encryptedBytes;
-    // uint256 public encryptedUint256Scalar;
-    // bool public encryptedBoolScalar;
-    // address public encryptedAddressScalar;
-    // bytes public encryptedBytesScalar;
-
-    // ============ ARITHMETIC OPERATIONS ============
-
     function testAdd(euint256 a, euint256 b) external returns (euint256) {
         euint256 result = a.add(b);
         e.allow(result, address(this));
@@ -89,8 +81,6 @@ contract LibTest {
         e.allow(result, msg.sender);
         return result;
     }
-
-    // ============ BITWISE OPERATIONS ============
 
     function testAnd(euint256 a, euint256 b) external returns (euint256) {
         euint256 result = a.and(b);
@@ -232,8 +222,6 @@ contract LibTest {
         return result;
     }
 
-    // ============ COMPARISON OPERATIONS ============
-
     function testEq(euint256 a, euint256 b) external returns (ebool) {
         ebool result = a.eq(b);
         e.allow(result, address(this));
@@ -374,16 +362,12 @@ contract LibTest {
         return result;
     }
 
-    // ============ LOGICAL OPERATIONS ============
-
     function testNot(ebool a) external returns (ebool) {
         ebool result = a.not();
         e.allow(result, address(this));
         e.allow(result, msg.sender);
         return result;
     }
-
-    // ============ RANDOM NUMBER GENERATION ============
 
     function testRand() external payable returns (euint256) {
         euint256 result = e.rand();
@@ -406,11 +390,7 @@ contract LibTest {
         return result;
     }
 
-    // ============ ENCRYPTED INPUT CREATION ============
-
     function testNewEuint256(bytes memory ciphertext, address user) external payable returns (euint256) {
-        // Fee check removed for testing - in production, uncomment this
-        // require(msg.value == inco.getFee(),"Fee not paid");
         euint256 encryptedUint256 = e.newEuint256(ciphertext, user);
         e.allow(encryptedUint256, address(this));
         e.allow(encryptedUint256, user);
@@ -418,8 +398,6 @@ contract LibTest {
     }
 
     function testNewEbool(bytes memory ciphertext, address user) external payable returns (ebool) {
-        // Fee check removed for testing - in production, uncomment this
-        // require(msg.value == inco.getFee(),"Fee not paid");
         ebool encryptedBool = e.newEbool(ciphertext, user);
         e.allow(encryptedBool, address(this));
         e.allow(encryptedBool, user);
@@ -427,16 +405,11 @@ contract LibTest {
     }
 
     function testNewEaddress(bytes memory ciphertext, address user) external payable returns (eaddress) {
-        // Fee check removed for testing - in production, uncomment this
-        // require(msg.value == inco.getFee(),"Fee not paid");
         eaddress encryptedAddress = e.newEaddress(ciphertext, user);
         e.allow(encryptedAddress, address(this));
         e.allow(encryptedAddress, user);
         return encryptedAddress;
     }
-
-
-    // ============ REVEAL OPERATIONS ============
 
     function testRevealEUint(euint256 a) external {
         e.reveal(a);
